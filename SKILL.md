@@ -1,9 +1,9 @@
 ---
-name: solana-trader
+name: openclaw-trader
 description: Solana trading CLI - Trade tokens, track portfolio, analyze PnL via Helius and Jupiter
 ---
 
-# Solana Trader Skill
+# openclaw-trader
 
 Trade Solana tokens with portfolio tracking and PnL analysis.
 
@@ -18,36 +18,36 @@ Trade Solana tokens with portfolio tracking and PnL analysis.
 
 ### Wallet
 ```bash
-./src/cli.ts wallet address     # Get public address (safe to share)
-./src/cli.ts wallet generate    # One-time wallet setup
+openclaw-trader wallet address     # Get public address (safe to share)
+openclaw-trader wallet generate    # One-time wallet setup
 ```
 
 ### Portfolio
 ```bash
-./src/cli.ts portfolio view     # All holdings with USD values
-./src/cli.ts portfolio pnl <mint-address>  # PnL for specific token
+openclaw-trader portfolio view     # All holdings with USD values
+openclaw-trader portfolio pnl <mint-address>  # PnL for specific token
 ```
 
 ### Trading
 ```bash
-./src/cli.ts trade quote <input-mint> <output-mint> <amount>
-./src/cli.ts trade swap <input-mint> <output-mint> <amount>
+openclaw-trader trade quote <input-mint> <output-mint> <amount>
+openclaw-trader trade swap <input-mint> <output-mint> <amount>
 ```
 
 Amount is in human-readable format (e.g., `100` for 100 USDC, `0.5` for 0.5 SOL).
 
 ### Token Research
 ```bash
-./src/cli.ts info <symbol-or-address>   # Detailed token info
-./src/cli.ts search <query>             # Search tokens
-./src/cli.ts book                       # Token address book
+openclaw-trader info <symbol-or-address>   # Detailed token info
+openclaw-trader search <query>             # Search tokens
+openclaw-trader book                       # Token address book
 ```
 
 ### Position Tracking
 ```bash
-./src/cli.ts positions list    # View open positions
-./src/cli.ts positions open    # Record new position
-./src/cli.ts positions close   # Close position
+openclaw-trader positions list    # View open positions
+openclaw-trader positions open    # Record new position
+openclaw-trader positions close   # Close position
 ```
 
 ## Common Token Addresses
@@ -79,28 +79,28 @@ Returns: price, 24h change, volume, liquidity, market cap, verification status, 
 ### Execute Trade
 ```bash
 # 1. Get quote
-./src/cli.ts trade quote EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v So11111111111111111111111111111111111111112 100
+openclaw-trader trade quote EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v So11111111111111111111111111111111111111112 100
 
 # 2. Execute if quote looks good
-./src/cli.ts trade swap EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v So11111111111111111111111111111111111111112 100
+openclaw-trader trade swap EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v So11111111111111111111111111111111111111112 100
 
 # 3. Verify in portfolio
-./src/cli.ts portfolio view
+openclaw-trader portfolio view
 ```
 
 ### Take Profit (Sell All of Token)
 ```bash
 # Check balance
-./src/cli.ts portfolio view
+openclaw-trader portfolio view
 
 # Sell token to USDC (use exact balance from portfolio)
-./src/cli.ts trade swap <token-mint> EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v <amount>
+openclaw-trader trade swap <token-mint> EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v <amount>
 ```
 
 ## Troubleshooting
 
-**"No wallet found"** - Run `./src/cli.ts wallet generate`
+**"No wallet found"** - Run `openclaw-trader wallet generate`
 
 **"Password required"** - Set `WALLET_PASSWORD` environment variable
 
-**"Token not found"** - Use `./src/cli.ts search <name>` to find mint address
+**"Token not found"** - Use `openclaw-trader search <name>` to find mint address
