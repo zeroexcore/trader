@@ -5,9 +5,17 @@ Solana trading CLI - trade tokens with portfolio tracking and PnL analysis.
 ## Install
 
 ```bash
-npm install -g openclaw-trader
+# npm
+npm install -g github:zeroexcore/trader
 
-export HELIUS_API_KEY=your_key
+# pnpm
+pnpm add -g github:zeroexcore/trader
+```
+
+## Setup
+
+```bash
+export HELIUS_API_KEY=your_key      # Get from helius.dev
 export WALLET_PASSWORD=your_password
 
 # Generate wallet (one-time)
