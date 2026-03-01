@@ -1,0 +1,20 @@
+onlyBuiltDependencies:
+  - '-'
+  - a
+  - bigint-buffer
+  - bufferutil
+  - c
+  - esbuild
+  - g
+  - h
+  - i
+  - l
+  - m
+  - o
+  - p
+  - r
+  - t
+  - u
+  - utf-8-validate
+  - w
+  - y
