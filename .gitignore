@@ -9,3 +9,4 @@ positions.json
 tokens.json
 *.pem
 *.enc
+journal

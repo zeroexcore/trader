@@ -30,6 +30,7 @@ import {
   generateWallet,
   getWalletAddress,
   loadKeypairForSigning,
+  exportPrivateKey,
 } from './utils/wallet.js';
 
 dotenv.config();
@@ -83,6 +84,34 @@ wallet
     try {
       const address = getWalletAddress(password);
       console.log(address);
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+wallet
+  .command('export')
+  .description('Export private key for backup (KEEP SECRET!)')
+  .option('-p, --password <password>', 'Encryption password')
+  .action(async (options) => {
+    const password = options.password || process.env.WALLET_PASSWORD;
+    if (!password) {
+      console.error('❌ Password required');
+      process.exit(1);
+    }
+
+    try {
+      const privateKey = exportPrivateKey(password);
+      console.log('\n⚠️  WARNING: PRIVATE KEY - NEVER SHARE THIS!\n');
+      console.log('📋 Private Key (base58):');
+      console.log(privateKey);
+      console.log('\n📝 To import into Phantom/Solflare:');
+      console.log('   1. Open wallet app');
+      console.log('   2. Add/Import Wallet');
+      console.log('   3. Import Private Key');
+      console.log('   4. Paste the key above');
+      console.log('\n🔒 Store this securely offline. Delete from terminal history.\n');
     } catch (error: any) {
       console.error('❌ Error:', error.message);
       process.exit(1);

@@ -102,3 +102,37 @@ export function getWalletAddress(password: string): string {
   const publicKey = loadWallet(password);
   return publicKey.toBase58();
 }
+
+/**
+ * Export private key as base58 string for backup
+ * WARNING: Only use this for secure backup. Never share.
+ */
+export function exportPrivateKey(password: string): string {
+  const keypair = loadKeypairForSigning(password);
+  // Convert secret key (Uint8Array) to base58 for Phantom/Solflare import
+  const bs58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let result = '';
+  let bytes = Array.from(keypair.secretKey);
+  
+  while (bytes.length) {
+    let carry = 0;
+    const newBytes: number[] = [];
+    for (const byte of bytes) {
+      carry = carry * 256 + byte;
+      if (newBytes.length || carry >= 58) {
+        newBytes.push(Math.floor(carry / 58));
+        carry %= 58;
+      }
+    }
+    result = bs58Chars[carry] + result;
+    bytes = newBytes;
+  }
+  
+  // Add leading '1's for leading zero bytes
+  for (const byte of keypair.secretKey) {
+    if (byte === 0) result = '1' + result;
+    else break;
+  }
+  
+  return result;
+}
