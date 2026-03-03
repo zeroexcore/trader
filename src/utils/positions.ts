@@ -5,7 +5,7 @@ const POSITIONS_FILE = path.join(process.cwd(), 'positions.json');
 
 export interface Position {
   id: string;
-  type: 'long' | 'short';
+  type: 'long' | 'short' | 'prediction';
   token: string;
   tokenSymbol: string;
   entryPrice: number;
@@ -14,7 +14,7 @@ export interface Position {
   entryDate: string;
   targetPrice?: number;
   stopLoss?: number;
-  status: 'open' | 'closed';
+  status: 'open' | 'closed' | 'won' | 'lost';
   exitPrice?: number;
   exitDate?: string;
   pnl?: number;
@@ -22,6 +22,17 @@ export interface Position {
   // Current price tracking for unrealized PnL
   currentPrice?: number;
   currentPriceUpdatedAt?: string;
+  // Prediction market fields
+  prediction?: {
+    marketId: string;
+    eventTitle: string;
+    marketTitle: string;
+    side: 'yes' | 'no';
+    contracts: number;
+    payoutIfWin: number;
+    positionPubkey?: string;
+    txSignature: string;
+  };
 }
 
 export interface PositionsData {
@@ -343,7 +354,7 @@ export function displayPositions(positions: Position[]): void {
  */
 export function calculateTotalPnL(): { realized: number; count: number } {
   const data = loadPositions();
-  const closedPositions = data.positions.filter(p => p.status === 'closed' && p.pnl !== undefined);
+  const closedPositions = data.positions.filter(p => (p.status === 'closed' || p.status === 'won' || p.status === 'lost') && p.pnl !== undefined);
   
   const realized = closedPositions.reduce((sum, p) => sum + (p.pnl || 0), 0);
   
@@ -351,4 +362,108 @@ export function calculateTotalPnL(): { realized: number; count: number } {
     realized,
     count: closedPositions.length,
   };
+}
+
+/**
+ * Open a prediction market position
+ */
+export function openPredictionPosition(params: {
+  marketId: string;
+  eventTitle: string;
+  marketTitle: string;
+  side: 'yes' | 'no';
+  contracts: number;
+  entryPrice: number;
+  costUsd: number;
+  payoutIfWin: number;
+  txSignature: string;
+  positionPubkey?: string;
+  notes?: string;
+}): Position {
+  const data = loadPositions();
+  
+  const position: Position = {
+    id: `pred_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    type: 'prediction',
+    token: params.marketId,
+    tokenSymbol: `${params.side.toUpperCase()} ${params.marketTitle}`,
+    entryPrice: params.entryPrice,
+    entryAmount: params.contracts,
+    entryValueUsd: params.costUsd,
+    entryDate: new Date().toISOString(),
+    status: 'open',
+    notes: params.notes,
+    prediction: {
+      marketId: params.marketId,
+      eventTitle: params.eventTitle,
+      marketTitle: params.marketTitle,
+      side: params.side,
+      contracts: params.contracts,
+      payoutIfWin: params.payoutIfWin,
+      positionPubkey: params.positionPubkey,
+      txSignature: params.txSignature,
+    },
+  };
+  
+  data.positions.push(position);
+  savePositions(data);
+  
+  return position;
+}
+
+/**
+ * Close a prediction position (won or lost)
+ */
+export function closePredictionPosition(
+  positionId: string, 
+  outcome: 'won' | 'lost',
+  payoutUsd?: number
+): Position | null {
+  const data = loadPositions();
+  const position = data.positions.find(p => p.id === positionId);
+  
+  if (!position || position.type !== 'prediction') {
+    console.error('Prediction position not found:', positionId);
+    return null;
+  }
+  
+  position.status = outcome;
+  position.exitDate = new Date().toISOString();
+  
+  if (outcome === 'won') {
+    const payout = payoutUsd ?? position.prediction?.payoutIfWin ?? 0;
+    position.exitPrice = 1; // Contract settled at $1
+    position.pnl = payout - position.entryValueUsd;
+  } else {
+    position.exitPrice = 0; // Contract settled at $0
+    position.pnl = -position.entryValueUsd;
+  }
+  
+  savePositions(data);
+  return position;
+}
+
+/**
+ * Find prediction position by market ID
+ */
+export function findPredictionByMarket(marketId: string, side?: 'yes' | 'no'): Position | null {
+  const data = loadPositions();
+  return data.positions.find(p => 
+    p.type === 'prediction' && 
+    p.prediction?.marketId === marketId &&
+    p.status === 'open' &&
+    (side === undefined || p.prediction?.side === side)
+  ) || null;
+}
+
+/**
+ * Get all prediction positions
+ */
+export function getPredictionPositions(status?: 'open' | 'won' | 'lost' | 'all'): Position[] {
+  const data = loadPositions();
+  return data.positions.filter(p => {
+    if (p.type !== 'prediction') return false;
+    if (!status || status === 'all') return true;
+    return p.status === status;
+  });
 }
