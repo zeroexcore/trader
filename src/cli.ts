@@ -900,4 +900,255 @@ predict
     }
   });
 
+// NFT Commands
+import {
+  getCollectionStats,
+  getListings,
+  getPopularCollections,
+  searchCollections,
+  getWalletNFTs,
+  getGachaStock,
+  getGachaCards,
+  getCryptListings,
+  getGachaStatus,
+  formatSol,
+  solToUsd,
+} from './utils/nft.js';
+
+const nft = program.command('nft').description('NFT trading via Magic Eden');
+
+nft
+  .command('floor <collection>')
+  .description('Get floor price for a collection')
+  .action(async (collection) => {
+    try {
+      console.log(`\n🖼️ Fetching ${collection} stats...\n`);
+      const stats = await getCollectionStats(collection);
+      const usd = solToUsd(stats.floorPrice);
+      
+      console.log(`📊 ${stats.name}`);
+      console.log(`   Floor: ${formatSol(stats.floorPrice)} (~$${usd.toFixed(0)})`);
+      console.log(`   Listed: ${stats.listedCount}`);
+      console.log(`   Volume: ${formatSol(stats.volumeAll)}`);
+      console.log('');
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+nft
+  .command('listings <collection>')
+  .description('Browse listings for a collection')
+  .option('-l, --limit <number>', 'Number of listings', '10')
+  .action(async (collection, options) => {
+    try {
+      console.log(`\n🖼️ Fetching ${collection} listings...\n`);
+      const listings = await getListings(collection, parseInt(options.limit));
+      
+      if (listings.length === 0) {
+        console.log('No listings found');
+        return;
+      }
+      
+      for (const l of listings) {
+        const usd = solToUsd(l.price);
+        console.log(`${l.name.slice(0, 50)}`);
+        console.log(`   ${formatSol(l.price)} (~$${usd.toFixed(0)}) | ${l.mint.slice(0, 8)}...`);
+      }
+      console.log(`\n📊 Showing ${listings.length} listings\n`);
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+nft
+  .command('popular')
+  .description('Show popular NFT collections')
+  .option('-l, --limit <number>', 'Number of collections', '15')
+  .action(async (options) => {
+    try {
+      console.log('\n🔥 Popular Collections (24h)\n');
+      const collections = await getPopularCollections(50);
+      
+      for (const c of collections.slice(0, parseInt(options.limit))) {
+        const usd = solToUsd(c.floorPrice);
+        console.log(`${c.name}`);
+        console.log(`   Floor: ${formatSol(c.floorPrice)} (~$${usd.toFixed(0)}) | Listed: ${c.listedCount}`);
+      }
+      console.log('');
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+nft
+  .command('search <query>')
+  .description('Search for NFT collections')
+  .action(async (query) => {
+    try {
+      console.log(`\n🔍 Searching for "${query}"...\n`);
+      const collections = await searchCollections(query);
+      
+      if (collections.length === 0) {
+        console.log('No collections found');
+        return;
+      }
+      
+      for (const c of collections.slice(0, 10)) {
+        const usd = solToUsd(c.floorPrice);
+        console.log(`${c.name} (${c.symbol})`);
+        console.log(`   Floor: ${formatSol(c.floorPrice)} (~$${usd.toFixed(0)})`);
+      }
+      console.log('');
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+nft
+  .command('portfolio')
+  .description('View your NFT holdings')
+  .option('-p, --password <password>', 'Wallet password')
+  .action(async (options) => {
+    const password = options.password || process.env.WALLET_PASSWORD;
+    if (!password) {
+      console.error('❌ Password required');
+      process.exit(1);
+    }
+    
+    try {
+      const address = getWalletAddress(password);
+      console.log(`\n🖼️ Fetching NFTs for ${address}...\n`);
+      
+      const nfts = await getWalletNFTs(address);
+      
+      if (nfts.length === 0) {
+        console.log('No NFTs found');
+        return;
+      }
+      
+      for (const n of nfts) {
+        const listed = n.listStatus === 'listed' ? '📢 LISTED' : '';
+        console.log(`${n.name || 'Unknown'} ${listed}`);
+        console.log(`   Collection: ${n.collection || 'Unknown'}`);
+        console.log(`   Mint: ${n.mintAddress}`);
+        if (n.price) {
+          console.log(`   Price: ${n.price} SOL`);
+        }
+      }
+      console.log(`\n📊 Total: ${nfts.length} NFTs\n`);
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+// Collector Crypt Commands
+const crypt = program.command('crypt').description('Collector Crypt - Tokenized Pokemon Cards');
+
+crypt
+  .command('stock')
+  .description('Check gacha machine stock')
+  .action(async () => {
+    try {
+      console.log('\n🎰 Gacha Machine Stock\n');
+      const status = await getGachaStatus();
+      console.log(`Status: ${status.machineStatus === 'running' ? '🟢 RUNNING' : '🔴 STOPPED'}\n`);
+      
+      const stock = await getGachaStock();
+      
+      const packs = [
+        { name: '$50 Elite Pack', key: 'pokemon_50' },
+        { name: '$250 Legendary Pack', key: 'pokemon_250' },
+        { name: '$1000 Ultra Pack', key: 'pokemon_1000' },
+      ];
+      
+      for (const pack of packs) {
+        const s = stock[pack.key];
+        if (s) {
+          console.log(`📦 ${pack.name}`);
+          console.log(`   Epic: ${s.epic} (1%) | Rare: ${s.rare} (4%)`);
+          console.log(`   Uncommon: ${s.uncommon} (15%) | Common: ${s.common} (80%)`);
+          console.log('');
+        }
+      }
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+crypt
+  .command('epic')
+  .description('View epic cards available in gacha')
+  .option('-l, --limit <number>', 'Number of cards', '10')
+  .action(async (options) => {
+    try {
+      console.log('\n🌟 Epic Cards in $50 Gacha (1% chance)\n');
+      const cards = await getGachaCards('pokemon_50', 'epic');
+      
+      for (const card of cards.slice(0, parseInt(options.limit))) {
+        console.log(`${card.name}`);
+        console.log(`   💰 Insured: $${card.insuredValue} | ${card.grade || 'Ungraded'}`);
+        if (card.year) console.log(`   📅 ${card.year}`);
+      }
+      console.log(`\n📊 ${cards.length} epic cards available\n`);
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+crypt
+  .command('rare')
+  .description('View rare cards available in gacha')
+  .option('-l, --limit <number>', 'Number of cards', '10')
+  .action(async (options) => {
+    try {
+      console.log('\n💎 Rare Cards in $50 Gacha (4% chance)\n');
+      const cards = await getGachaCards('pokemon_50', 'rare');
+      
+      for (const card of cards.slice(0, parseInt(options.limit))) {
+        console.log(`${card.name}`);
+        console.log(`   💰 Insured: $${card.insuredValue} | ${card.grade || 'Ungraded'}`);
+      }
+      console.log(`\n📊 ${cards.length} rare cards available\n`);
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+crypt
+  .command('browse')
+  .description('Browse Pokemon cards on marketplace')
+  .option('-l, --limit <number>', 'Number of listings', '15')
+  .action(async (options) => {
+    try {
+      console.log('\n🃏 Pokemon Cards on Magic Eden\n');
+      const listings = await getCryptListings(parseInt(options.limit) + 20);
+      
+      if (listings.length === 0) {
+        console.log('No Pokemon cards listed');
+        return;
+      }
+      
+      for (const l of listings.slice(0, parseInt(options.limit))) {
+        const usd = solToUsd(l.price);
+        const grade = l.attributes?.grade || '';
+        const insured = l.attributes?.insuredValue ? `$${l.attributes.insuredValue} insured` : '';
+        console.log(`${l.name.slice(0, 50)}`);
+        console.log(`   ${formatSol(l.price)} (~$${usd.toFixed(0)}) | ${grade} ${insured}`);
+      }
+      console.log(`\n📊 Showing ${Math.min(listings.length, parseInt(options.limit))} Pokemon cards\n`);
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
 program.parse();
