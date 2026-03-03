@@ -13,10 +13,14 @@ import {
 import {
   calculateTotalPnL,
   closePosition,
+  closePredictionPosition,
   displayPositions,
+  findPredictionByMarket,
+  findPredictionByPubkey,
   getAllPositions,
   getOpenPositions,
   openPosition,
+  openPredictionPosition,
   updatePositionPrices
 } from './utils/positions.js';
 import {
@@ -684,8 +688,23 @@ predict
 
       const signature = await executeOrder(connection, keypair, orderResponse);
 
+      // Record position locally
+      const position = openPredictionPosition({
+        marketId,
+        eventTitle: market.metadata?.title || marketId,
+        marketTitle: market.metadata?.title || marketId,
+        side: isYes ? 'yes' : 'no',
+        contracts: actualContracts,
+        entryPrice: parseFloat(priceUsd.toFixed(4)),
+        costUsd: parseFloat(orderCost.toFixed(2)),
+        payoutIfWin: actualContracts,
+        txSignature: signature,
+        positionPubkey: orderResponse.order.orderPubkey,
+      });
+
       console.log('\n✅ Bet placed successfully!');
       console.log(`📝 Contracts: ${actualContracts} ${isYes ? 'YES' : 'NO'}`);
+      console.log(`📝 Position ID: ${position.id}`);
       console.log('📝 Signature:', signature);
       console.log('🔗 View on Solscan: https://solscan.io/tx/' + signature);
       console.log('');
@@ -812,6 +831,15 @@ predict
 
       const signature = await executeOrder(connection, keypair, order);
 
+      // Update local position if we're selling all contracts
+      const localPos = findPredictionByMarket(marketId, isYes ? 'yes' : 'no');
+      if (localPos && localPos.prediction?.contracts === numContracts) {
+        // Full exit - close the position
+        const proceeds = parseFloat(sellPriceUsd.times(numContracts).toFixed(2));
+        closePredictionPosition(localPos.id, proceeds >= localPos.entryValueUsd ? 'won' : 'lost', proceeds);
+        console.log(`\n📊 Position ${localPos.id} closed`);
+      }
+
       console.log('\n✅ Sold successfully!');
       console.log('📝 Signature:', signature);
       console.log('🔗 View on Solscan: https://solscan.io/tx/' + signature);
@@ -854,6 +882,13 @@ predict
       console.log('✍️ Signing transaction...');
 
       const signature = await executeOrder(connection, keypair, order);
+
+      // Update local position
+      const localPos = findPredictionByPubkey(positionPubkey);
+      if (localPos) {
+        closePredictionPosition(localPos.id, 'won');
+        console.log(`\n📊 Position ${localPos.id} marked as WON`);
+      }
 
       console.log('\n✅ Claimed successfully!');
       console.log('📝 Signature:', signature);

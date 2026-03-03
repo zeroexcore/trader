@@ -294,6 +294,34 @@ export function displayPositions(positions: Position[]): void {
   console.log('\n📊 Positions:\n');
   
   for (const pos of positions) {
+    // Handle prediction positions differently
+    if (pos.type === 'prediction' && pos.prediction) {
+      const statusEmoji = pos.status === 'open' ? '🟢' : pos.status === 'won' ? '🏆' : pos.status === 'lost' ? '❌' : '⚫';
+      const sideEmoji = pos.prediction.side === 'yes' ? '✅' : '🚫';
+      
+      console.log(`${statusEmoji} ${sideEmoji} ${pos.prediction.marketTitle} (${pos.prediction.side.toUpperCase()})`);
+      console.log(`   ID: ${pos.id}`);
+      console.log(`   Market: ${pos.prediction.marketId}`);
+      console.log(`   Event: ${pos.prediction.eventTitle}`);
+      console.log(`   Contracts: ${pos.prediction.contracts} @ $${pos.entryPrice.toFixed(2)}`);
+      console.log(`   Cost: $${pos.entryValueUsd.toFixed(2)}`);
+      console.log(`   Payout if ${pos.prediction.side.toUpperCase()}: $${pos.prediction.payoutIfWin.toFixed(2)}`);
+      console.log(`   Date: ${new Date(pos.entryDate).toLocaleString()}`);
+      
+      if (pos.status === 'won' || pos.status === 'lost') {
+        const pnlEmoji = pos.pnl && pos.pnl >= 0 ? '💰' : '💸';
+        console.log(`   Result: ${pos.status.toUpperCase()}`);
+        console.log(`   PnL: ${pnlEmoji} ${pos.pnl && pos.pnl >= 0 ? '+' : ''}$${pos.pnl?.toFixed(2) || '0.00'}`);
+      }
+      
+      if (pos.notes) {
+        console.log(`   Notes: ${pos.notes}`);
+      }
+      console.log('');
+      continue;
+    }
+    
+    // Token positions
     const emoji = pos.type === 'long' ? '📈' : '📉';
     const statusEmoji = pos.status === 'open' ? '🟢' : '⚫';
     
@@ -453,6 +481,18 @@ export function findPredictionByMarket(marketId: string, side?: 'yes' | 'no'): P
     p.prediction?.marketId === marketId &&
     p.status === 'open' &&
     (side === undefined || p.prediction?.side === side)
+  ) || null;
+}
+
+/**
+ * Find prediction position by on-chain position pubkey
+ */
+export function findPredictionByPubkey(positionPubkey: string): Position | null {
+  const data = loadPositions();
+  return data.positions.find(p => 
+    p.type === 'prediction' && 
+    p.prediction?.positionPubkey === positionPubkey &&
+    p.status === 'open'
   ) || null;
 }
 
