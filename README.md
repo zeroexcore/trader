@@ -61,6 +61,19 @@ openclaw-trader positions open     # Record new position
 openclaw-trader positions close    # Close position
 ```
 
+### Prediction Markets (Jupiter)
+```bash
+openclaw-trader predict list                          # Browse events
+openclaw-trader predict search "texas primary"        # Search events
+openclaw-trader predict market POLY-562186            # Market details + pricing
+openclaw-trader predict buy POLY-562186 yes 5         # Buy $5 of YES contracts
+openclaw-trader predict positions                     # View your bets
+openclaw-trader predict sell POLY-562186 yes 5        # Sell contracts
+openclaw-trader predict claim <position-pubkey>       # Claim winnings
+```
+
+Requires `JUPITER_API_KEY` from [portal.jup.ag](https://portal.jup.ag). Note: API is geo-restricted (US/South Korea blocked).
+
 ## Common Tokens
 
 | Symbol | Mint Address |
@@ -72,8 +85,9 @@ openclaw-trader positions close    # Close position
 ## Tech Stack
 
 - **Helius** - Portfolio data, token metadata, transaction submission
-- **Jupiter** - DEX aggregation for best-price swaps
+- **Jupiter** - DEX aggregation for best-price swaps + Prediction Markets
 - **Solana Web3.js** - Blockchain interactions
+- **big.js** - Precision math for financial calculations
 
 ## Security
 
@@ -88,6 +102,7 @@ HELIUS_API_KEY=xxx          # Required - from helius.dev
 WALLET_PASSWORD=xxx         # Required - encrypts wallet
 RPC_URL=xxx                 # Optional - defaults to Helius
 USE_HELIUS_SENDER=true      # Optional - ultra-low latency tx submission
+JUPITER_API_KEY=xxx         # Optional - for prediction markets (portal.jup.ag)
 ```
 
 ## Agent Integration
