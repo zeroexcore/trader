@@ -1,114 +1,98 @@
 # openclaw-trader
 
-Solana trading CLI - trade tokens with portfolio tracking and PnL analysis.
-
-## Install
-
-```bash
-# npm
-npm install -g github:zeroexcore/trader
-
-# pnpm
-pnpm add -g github:zeroexcore/trader
-```
+Solana trading CLI with portfolio tracking, prediction markets, and NFT browsing.
 
 ## Setup
 
 ```bash
-export HELIUS_API_KEY=your_key      # Get from helius.dev
-export WALLET_PASSWORD=your_password
+pnpm add -g github:zeroexcore/trader
 
-# Generate wallet (one-time)
-openclaw-trader wallet generate
+export HELIUS_API_KEY=xxx       # helius.dev
+export WALLET_PASSWORD=xxx      # encrypts wallet
+export JUPITER_API_KEY=xxx      # portal.jup.ag (for predictions)
+
+openclaw-trader wallet generate  # one-time
 ```
 
 ## Commands
 
-### Wallet
-```bash
-openclaw-trader wallet generate    # Create encrypted wallet
-openclaw-trader wallet address     # Show public address
-```
-
 ### Portfolio
 ```bash
-openclaw-trader portfolio view                  # All holdings with USD values
-openclaw-trader portfolio pnl <mint-address>    # PnL for specific token
+portfolio view              # holdings with USD values
+portfolio view -c           # with sparkline charts
+portfolio charts            # multi-asset price chart (brand colors)
+portfolio chart SOL         # single token chart
+portfolio watch             # live price monitoring
+portfolio pnl <token>       # detailed PnL analysis
 ```
 
 ### Trading
 ```bash
-openclaw-trader trade quote <input-mint> <output-mint> <amount>
-openclaw-trader trade swap <input-mint> <output-mint> <amount>
+trade quote SOL USDC 1      # get swap quote
+trade swap SOL USDC 1       # execute swap
 ```
 
-Example - Sell 100 USDC for SOL:
+### Positions
 ```bash
-openclaw-trader trade swap EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v So11111111111111111111111111111111111111112 100
+positions list              # open positions
+positions list --all        # include closed
+positions open long SOL 1 90   # record position
+positions close <id> 95 1   # close with exit price
+positions update            # refresh current prices
+```
+
+### Prediction Markets
+```bash
+predict list                # browse events
+predict list -c sports      # filter by category
+predict search "arsenal"    # search events
+predict market POLY-123     # market details + odds
+predict buy POLY-123 yes 10 # bet $10 on YES
+predict sell POLY-123 yes 5 # sell 5 contracts
+predict positions           # view bets with PnL
+predict watch               # live odds monitoring
+predict claim <pubkey>      # claim winnings
+```
+
+### NFTs
+```bash
+nft floor mad_lads          # collection floor price
+nft listings mad_lads       # browse listings
+nft popular                 # trending collections
+nft search "okay bears"     # search collections
+nft portfolio               # your NFTs
+```
+
+### Collector Crypt (Pokemon TCG)
+```bash
+cards stock <set> <number>  # check card stock
+cards epic                  # browse epic cards
+cards rare                  # browse rare cards
 ```
 
 ### Token Info
 ```bash
-openclaw-trader info SOL           # Detailed token info
-openclaw-trader search nvidia      # Search tokens by name
-openclaw-trader book               # Token address book
+info SOL                    # token details
+search nvidia               # search tokens
+book                        # saved addresses
+book add MYTOKEN <mint>     # save address
 ```
 
-### Position Tracking
+## Token Shortcuts
+
+Use tickers instead of addresses: `SOL`, `USDC`, `WBTC`, `GLDx`, `JupUSD`
+
+## Environment
+
 ```bash
-openclaw-trader positions list     # View open positions
-openclaw-trader positions open     # Record new position
-openclaw-trader positions close    # Close position
+HELIUS_API_KEY=xxx          # required
+WALLET_PASSWORD=xxx         # required
+RPC_URL=xxx                 # optional (defaults to Helius)
+JUPITER_API_KEY=xxx         # for prediction markets
 ```
-
-### Prediction Markets (Jupiter)
-```bash
-openclaw-trader predict list                          # Browse events
-openclaw-trader predict search "texas primary"        # Search events
-openclaw-trader predict market POLY-562186            # Market details + pricing
-openclaw-trader predict buy POLY-562186 yes 5         # Buy $5 of YES contracts
-openclaw-trader predict positions                     # View your bets
-openclaw-trader predict sell POLY-562186 yes 5        # Sell contracts
-openclaw-trader predict claim <position-pubkey>       # Claim winnings
-```
-
-Requires `JUPITER_API_KEY` from [portal.jup.ag](https://portal.jup.ag). Note: API is geo-restricted (US/South Korea blocked).
-
-## Common Tokens
-
-| Symbol | Mint Address |
-|--------|--------------|
-| SOL | `So11111111111111111111111111111111111111112` |
-| USDC | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
-| USDT | `Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB` |
-
-## Tech Stack
-
-- **Helius** - Portfolio data, token metadata, transaction submission
-- **Jupiter** - DEX aggregation for best-price swaps + Prediction Markets
-- **Solana Web3.js** - Blockchain interactions
-- **big.js** - Precision math for financial calculations
 
 ## Security
 
 - Wallet encrypted with AES-256-GCM at `~/.openclaw/trader-wallet.enc`
-- Never commit `.env` or wallet files
-- Only share public wallet address
-
-## Environment Variables
-
-```bash
-HELIUS_API_KEY=xxx          # Required - from helius.dev
-WALLET_PASSWORD=xxx         # Required - encrypts wallet
-RPC_URL=xxx                 # Optional - defaults to Helius
-USE_HELIUS_SENDER=true      # Optional - ultra-low latency tx submission
-JUPITER_API_KEY=xxx         # Optional - for prediction markets (portal.jup.ag)
-```
-
-## Agent Integration
-
-See `SKILL.md` for AI agent usage patterns and workflows.
-
-## License
-
-ISC
+- Never share password or private key
+- Public address is safe to share
