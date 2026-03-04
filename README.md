@@ -50,7 +50,7 @@ predict market POLY-123     # market details + odds
 predict buy POLY-123 yes 10 # bet $10 on YES
 predict sell POLY-123 yes 5 # sell 5 contracts
 predict positions           # view bets with PnL
-predict watch               # live odds monitoring
+predict watch -i 10         # live odds monitoring + ASCII chart
 predict claim <pubkey>      # claim winnings
 ```
 

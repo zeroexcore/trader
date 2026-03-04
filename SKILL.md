@@ -34,7 +34,7 @@ pnpm dev predict list -c sports   # browse
 pnpm dev predict market POLY-123  # odds
 pnpm dev predict buy POLY-123 yes 10  # bet $10
 pnpm dev predict positions        # view bets
-pnpm dev predict watch            # live monitoring
+pnpm dev predict watch -i 10      # live monitoring + ASCII chart
 pnpm dev predict claim <pubkey>   # claim win
 
 # NFTs

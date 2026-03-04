@@ -2,7 +2,7 @@
 import { Connection } from '@solana/web3.js';
 import { Command } from 'commander';
 import dotenv from 'dotenv';
-import asciichart from 'asciichart';
+import * as asciichart from 'asciichart';
 import { getTokenDecimals, toSmallestUnit, fromSmallestUnit } from './utils/amounts.js';
 import Big from 'big.js';
 import { calculatePnL, getPortfolio } from './utils/helius.js';
@@ -352,7 +352,7 @@ portfolio
     try {
       // Get positions for this token
       const allPositions = getAllPositions();
-      const tokenPositions = allPositions.filter(p => p.mint === mint || p.symbol?.toUpperCase() === tokenOrTicker.toUpperCase());
+      const tokenPositions = allPositions.filter((p: any) => p.mint === mint || p.symbol?.toUpperCase() === tokenOrTicker.toUpperCase());
       
       // Get current price via Helius DAS API
       const heliusApiKey = process.env.HELIUS_API_KEY;
@@ -396,7 +396,7 @@ portfolio
       // Find B/S markers
       const markers: { index: number; type: 'B' | 'S'; price: number }[] = [];
       
-      for (const pos of tokenPositions) {
+      for (const pos of tokenPositions as any[]) {
         if (pos.entryTime) {
           const entryDate = new Date(pos.entryTime);
           const now = new Date();
@@ -436,7 +436,7 @@ portfolio
       // Show trades
       if (tokenPositions.length > 0) {
         console.log('\n📊 Trade History:');
-        for (const pos of tokenPositions) {
+        for (const pos of tokenPositions as any[]) {
           const status = pos.status === 'open' ? '🟢 OPEN' : '⚪ CLOSED';
           const side = pos.type === 'long' ? 'LONG' : 'SHORT';
           const amount = pos.entryAmount || pos.amount || 0;
@@ -1141,6 +1141,7 @@ predict
   .description('Watch positions with live odds and PnL updates')
   .option('-i, --interval <seconds>', 'Refresh interval in seconds', '30')
   .option('-p, --password <password>', 'Wallet password')
+  .option('-c, --chart', 'Show ASCII chart of odds history', false)
   .action(async (options) => {
     const password = options.password || process.env.WALLET_PASSWORD;
     if (!password) {
@@ -1150,6 +1151,10 @@ predict
     
     const interval = parseInt(options.interval) * 1000;
     const address = getWalletAddress(password);
+    
+    // Track odds history in memory
+    const oddsHistory: Record<string, number[]> = {};
+    const maxHistory = 60;
     
     console.log(`👁️  Watching positions (refresh every ${options.interval}s)...`);
     console.log(`   Press Ctrl+C to stop\n`);
@@ -1172,12 +1177,11 @@ predict
         let totalPnl = Big(0);
         let totalCost = Big(0);
         
-        // Table header
-        console.log(`${'Bet'.padEnd(25)} ${'Odds'.padStart(6)} ${'Entry'.padStart(6)} ${'Value'.padStart(8)} ${'PnL'.padStart(10)} ${'Payout'.padStart(8)}`);
-        console.log(`${'─'.repeat(25)} ${'─'.repeat(6)} ${'─'.repeat(6)} ${'─'.repeat(8)} ${'─'.repeat(10)} ${'─'.repeat(8)}`);
+        // Collect data first
+        const posData: { title: string; odds: number; entry: number; pnl: Big; payout: Big; status: string; key: string }[] = [];
         
         for (const pos of result.positions) {
-          const title = pos.marketMetadata.title.substring(0, 24);
+          const title = pos.marketMetadata.title.substring(0, 18);
           const cost = microToUsd(pos.totalCostUsd);
           const avgPrice = microToUsd(pos.avgPriceUsd);
           const value = microToUsd(pos.valueUsd);
@@ -1187,31 +1191,74 @@ predict
           const marketStatus = pos.marketMetadata?.status || 'open';
           const marketResult = pos.marketMetadata?.result;
           
-          const currentOdds = sellPrice ? `${(sellPrice.toNumber() * 100).toFixed(0)}%` : 'N/A';
-          const entryOdds = `${(avgPrice.toNumber() * 100).toFixed(0)}%`;
-          const pnlStr = `${pnl.gte(0) ? '+' : ''}$${pnl.toFixed(2)}`;
-          const pnlPct = `(${pos.pnlUsdAfterFeesPercent >= 0 ? '+' : ''}${pos.pnlUsdAfterFeesPercent.toFixed(0)}%)`;
+          const currentOddsNum = sellPrice ? sellPrice.toNumber() * 100 : 0;
+          
+          // Track odds history
+          const key = pos.marketId;
+          if (!oddsHistory[key]) oddsHistory[key] = [];
+          if (currentOddsNum > 0) {
+            oddsHistory[key].push(currentOddsNum);
+            if (oddsHistory[key].length > maxHistory) oddsHistory[key].shift();
+          }
           
           let status = '';
           if (marketStatus === 'closed') {
             const won = (marketResult === 'yes' && pos.isYes) || (marketResult === 'no' && !pos.isYes);
-            status = won ? ' ✅' : ' ❌';
+            status = won ? '✅' : '❌';
           }
-          if (pos.claimable) {
-            status = ' 🎉';
-          }
+          if (pos.claimable) status = '🎉';
           
-          console.log(`${(title + status).padEnd(25)} ${currentOdds.padStart(6)} ${entryOdds.padStart(6)} ${('$' + value.toFixed(2)).padStart(8)} ${(pnlStr + ' ' + pnlPct).padStart(10)} ${('$' + payout.toFixed(2)).padStart(8)}`);
+          posData.push({
+            title,
+            odds: currentOddsNum,
+            entry: avgPrice.toNumber() * 100,
+            pnl,
+            payout,
+            status,
+            key,
+          });
           
           totalValue = totalValue.plus(value);
           totalPnl = totalPnl.plus(pnl);
           totalCost = totalCost.plus(cost);
         }
         
-        console.log(`${'─'.repeat(25)} ${'─'.repeat(6)} ${'─'.repeat(6)} ${'─'.repeat(8)} ${'─'.repeat(10)} ${'─'.repeat(8)}`);
+        // Table
+        console.log(`${'Bet'.padEnd(18)} ${'Odds'.padStart(5)} ${'Entry'.padStart(5)} ${'PnL'.padStart(10)} ${'Payout'.padStart(7)}`);
+        console.log(`${'─'.repeat(18)} ${'─'.repeat(5)} ${'─'.repeat(5)} ${'─'.repeat(10)} ${'─'.repeat(7)}`);
+        
+        for (const p of posData) {
+          const pnlStr = `${p.pnl.gte(0) ? '+' : ''}$${p.pnl.toFixed(2)}`;
+          console.log(`${(p.title + (p.status ? ' ' + p.status : '')).padEnd(18)} ${(p.odds.toFixed(0) + '%').padStart(5)} ${(p.entry.toFixed(0) + '%').padStart(5)} ${pnlStr.padStart(10)} ${('$' + p.payout.toFixed(2)).padStart(7)}`);
+        }
+        
+        console.log(`${'─'.repeat(18)} ${'─'.repeat(5)} ${'─'.repeat(5)} ${'─'.repeat(10)} ${'─'.repeat(7)}`);
         const totalPnlEmoji = totalPnl.gte(0) ? '💰' : '💸';
-        console.log(`${'TOTAL'.padEnd(25)} ${''.padStart(6)} ${''.padStart(6)} ${('$' + totalValue.toFixed(2)).padStart(8)} ${(totalPnl.gte(0) ? '+' : '') + '$' + totalPnl.toFixed(2).padStart(10)} ${''}`);
-        console.log(`\n${totalPnlEmoji} Total PnL: ${totalPnl.gte(0) ? '+' : ''}$${totalPnl.toFixed(2)} | Cost: $${totalCost.toFixed(2)} | Value: $${totalValue.toFixed(2)}`);
+        console.log(`${totalPnlEmoji} PnL: ${totalPnl.gte(0) ? '+' : ''}$${totalPnl.toFixed(2)} | Cost: $${totalCost.toFixed(2)} | Value: $${totalValue.toFixed(2)}`);
+        
+        // ASCII Chart
+        const entries = Object.entries(oddsHistory).filter(([_, vals]) => vals.length > 2);
+        if (entries.length > 0) {
+          console.log(`\n📈 Live Odds:\n`);
+          
+          const colors = [asciichart.cyan, asciichart.yellow, asciichart.magenta, asciichart.red, asciichart.green, asciichart.blue];
+          const series = entries.map(([_, vals]) => vals);
+          
+          console.log(asciichart.plot(series, {
+            height: 12,
+            colors: colors.slice(0, series.length),
+            format: (x: number) => x.toFixed(0).padStart(3) + '%',
+          }));
+          
+          // Legend
+          const legend = entries.map(([key, vals], i) => {
+            const pos = posData.find(p => p.key === key);
+            const name = pos?.title?.substring(0, 10) || key.substring(0, 10);
+            const clr = ['\x1b[36m', '\x1b[33m', '\x1b[35m', '\x1b[31m', '\x1b[32m', '\x1b[34m'][i] || '';
+            return `${clr}●\x1b[0m ${name}`;
+          });
+          console.log('\n   ' + legend.join('   '));
+        }
         
         // Check for claimable
         const claimable = result.positions.filter((p: any) => p.claimable);

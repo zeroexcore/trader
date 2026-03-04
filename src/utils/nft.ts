@@ -56,7 +56,7 @@ export async function getCollectionStats(symbol: string): Promise<CollectionStat
   if (!response.ok) {
     throw new Error(`Collection not found: ${symbol}`);
   }
-  const data = await response.json();
+  const data: any = await response.json();
   return {
     symbol: data.symbol,
     name: data.symbol,
@@ -74,7 +74,7 @@ export async function getListings(symbol: string, limit = 20): Promise<NFTListin
   if (!response.ok) {
     throw new Error(`Failed to fetch listings for ${symbol}`);
   }
-  const data = await response.json();
+  const data: any = await response.json();
   
   return data.map((item: any) => ({
     mint: item.tokenMint,
@@ -86,7 +86,7 @@ export async function getListings(symbol: string, limit = 20): Promise<NFTListin
     attributes: item.token?.attributes?.reduce((acc: any, attr: any) => {
       acc[attr.trait_type] = attr.value;
       return acc;
-    }, {}),
+    }, {}) || {},
   }));
 }
 
@@ -98,7 +98,7 @@ export async function getPopularCollections(limit = 50): Promise<CollectionStats
   if (!response.ok) {
     throw new Error('Failed to fetch popular collections');
   }
-  const data = await response.json();
+  const data: any = await response.json();
   
   return data.map((item: any) => ({
     symbol: item.symbol,
@@ -117,7 +117,7 @@ export async function searchCollections(query: string): Promise<CollectionStats[
   if (!response.ok) {
     throw new Error('Failed to search collections');
   }
-  const data = await response.json();
+  const data: any = await response.json();
   
   return data.map((item: any) => ({
     symbol: item.symbol,
@@ -136,7 +136,7 @@ export async function getWalletNFTs(walletAddress: string): Promise<any[]> {
   if (!response.ok) {
     throw new Error('Failed to fetch wallet NFTs');
   }
-  return response.json();
+  return response.json() as Promise<any[]>;
 }
 
 // ============ Collector Crypt ============
@@ -149,7 +149,7 @@ export async function getGachaStock(): Promise<Record<string, GachaStock>> {
   if (!response.ok) {
     throw new Error('Failed to fetch gacha stock');
   }
-  return response.json();
+  return response.json() as Promise<Record<string, GachaStock>>;
 }
 
 /**
@@ -168,7 +168,7 @@ export async function getGachaCards(
   if (!response.ok) {
     throw new Error('Failed to fetch gacha cards');
   }
-  const data = await response.json();
+  const data: any = await response.json();
   
   return (data.nfts || []).map((item: any) => {
     const attrs = item.content?.metadata?.attributes || [];
@@ -202,9 +202,9 @@ export async function getCryptListings(limit = 50): Promise<NFTListing[]> {
     ...l,
     attributes: {
       ...l.attributes,
-      insuredValue: l.attributes?.['Insured Value'],
-      grade: l.attributes?.['The Grade'],
-      year: l.attributes?.['Year'],
+      insuredValue: l.attributes?.['Insured Value'] || '',
+      grade: l.attributes?.['The Grade'] || '',
+      year: l.attributes?.['Year'] || '',
     },
   }));
 }
@@ -217,7 +217,7 @@ export async function getGachaStatus(): Promise<{ machineStatus: string }> {
   if (!response.ok) {
     throw new Error('Failed to fetch gacha status');
   }
-  return response.json();
+  return response.json() as Promise<{ machineStatus: string }>;
 }
 
 // ============ Helpers ============

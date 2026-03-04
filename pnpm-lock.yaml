@@ -30,6 +30,9 @@ importers:
         specifier: ^4.19.2
         version: 4.21.0
     devDependencies:
+      '@types/asciichart':
+        specifier: ^1.5.8
+        version: 1.5.8
       '@types/big.js':
         specifier: ^6.2.2
         version: 6.2.2
@@ -313,6 +316,9 @@ packages:
 
   '@swc/helpers@0.5.19':
     resolution: {integrity: sha512-QamiFeIK3txNjgUTNppE6MiG3p7TdninpZu0E0PbqVh1a9FNLT2FRhisaa4NcaX52XVhA5l7Pk58Ft7Sqi/2sA==}
+
+  '@types/asciichart@1.5.8':
+    resolution: {integrity: sha512-8yzgCUybv8/yUfj4WeTh7G+V+AxU7AzwsF2CrkTtARKHdrxE/EiByF2efUMj6qdm87tENucNu6pLs22RWU0H7g==}
 
   '@types/big.js@6.2.2':
     resolution: {integrity: sha512-e2cOW9YlVzFY2iScnGBBkplKsrn2CsObHQ2Hiw4V1sSyiGbgWL8IyqE3zFi1Pt5o1pdAtYkDAIsF3KKUPjdzaA==}
@@ -1046,6 +1052,8 @@ snapshots:
   '@swc/helpers@0.5.19':
     dependencies:
       tslib: 2.8.1
+
+  '@types/asciichart@1.5.8': {}
 
   '@types/big.js@6.2.2': {}
 
