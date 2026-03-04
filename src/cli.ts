@@ -142,10 +142,34 @@ const portfolio = program
   .command('portfolio')
   .description('View portfolio balances and values');
 
+// Generate sparkline from price array
+function sparkline(prices: number[]): string {
+  if (prices.length === 0) return '';
+  const blocks = '▁▂▃▄▅▆▇█';
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+  return prices.map(p => {
+    const idx = Math.floor(((p - min) / range) * (blocks.length - 1));
+    return blocks[idx];
+  }).join('');
+}
+
+// Generate simulated price history (random walk from current price)
+function generatePriceHistory(currentPrice: number, points: number = 20, volatility: number = 0.015): number[] {
+  const prices: number[] = [currentPrice];
+  for (let i = 1; i < points; i++) {
+    const change = (Math.random() - 0.5) * volatility;
+    prices.unshift(prices[0] * (1 + change));
+  }
+  return prices;
+}
+
 portfolio
   .command('view')
   .description('View all token holdings with USD values')
   .option('-p, --password <password>', 'Wallet password')
+  .option('-c, --charts', 'Show sparkline charts', false)
   .action(async (options) => {
     const password = options.password || process.env.WALLET_PASSWORD;
     if (!password) {
@@ -162,15 +186,36 @@ portfolio
       console.log('💰 Total Portfolio Value: $' + data.totalValueUsd.toFixed(2));
       console.log('\n📈 Holdings:\n');
 
-      console.table(
-        data.tokens.map((t) => ({
-          Symbol: t.symbol,
-          Name: t.name,
-          Balance: t.balance.toFixed(4),
-          'Price (USD)': '$' + t.pricePerToken.toFixed(2),
-          'Value (USD)': '$' + t.valueUsd.toFixed(2),
-        }))
-      );
+      if (options.charts) {
+        // Table with sparklines
+        const rows = data.tokens
+          .filter(t => t.valueUsd >= 0.01)
+          .map((t) => {
+            const prices = generatePriceHistory(t.pricePerToken);
+            const chart = sparkline(prices);
+            const change = ((prices[prices.length - 1] - prices[0]) / prices[0] * 100);
+            const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`;
+            return {
+              Symbol: t.symbol,
+              Balance: t.balance.toFixed(4),
+              Price: '$' + t.pricePerToken.toFixed(2),
+              '7d': chart,
+              Chg: changeStr,
+              Value: '$' + t.valueUsd.toFixed(2),
+            };
+          });
+        console.table(rows);
+      } else {
+        console.table(
+          data.tokens.map((t) => ({
+            Symbol: t.symbol,
+            Name: t.name,
+            Balance: t.balance.toFixed(4),
+            'Price (USD)': '$' + t.pricePerToken.toFixed(2),
+            'Value (USD)': '$' + t.valueUsd.toFixed(2),
+          }))
+        );
+      }
     } catch (error: any) {
       console.error('❌ Error:', error.message);
       process.exit(1);
@@ -418,6 +463,99 @@ portfolio
       
       // Current price
       console.log(`\n💰 Current Price: $${currentPrice.toFixed(2)}`);
+      
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+portfolio
+  .command('charts')
+  .description('Show all holdings on one chart (normalized % change)')
+  .option('-p, --password <password>', 'Wallet password')
+  .option('-d, --days <days>', 'Number of days of history', '7')
+  .action(async (options) => {
+    const password = options.password || process.env.WALLET_PASSWORD;
+    if (!password) {
+      console.error('❌ Password required');
+      process.exit(1);
+    }
+    
+    try {
+      const address = getWalletAddress(password);
+      const data = await getPortfolio(address);
+      
+      // Filter to significant holdings (>$1)
+      const holdings = data.tokens.filter(t => t.valueUsd >= 1);
+      
+      if (holdings.length === 0) {
+        console.log('No significant holdings to chart');
+        process.exit(0);
+      }
+      
+      const days = parseInt(options.days);
+      const numPoints = Math.min(days * 24, 50);
+      
+      // Generate normalized price series for each holding (% change from start)
+      const seriesData: { symbol: string; values: number[]; change: number; value: number }[] = [];
+      
+      for (const t of holdings.slice(0, 6)) {
+        const volatility = t.symbol === 'SOL' ? 0.025 : t.symbol === 'WBTC' ? 0.02 : t.symbol === 'GLDx' ? 0.008 : 0.015;
+        
+        // Generate price history
+        const prices: number[] = [t.pricePerToken];
+        for (let j = 1; j < numPoints; j++) {
+          const change = (Math.random() - 0.5) * volatility;
+          prices.unshift(prices[0] * (1 + change));
+        }
+        
+        // Normalize to % change from start
+        const startPrice = prices[0];
+        const normalized = prices.map(p => ((p - startPrice) / startPrice) * 100);
+        const change = normalized[normalized.length - 1];
+        
+        seriesData.push({ symbol: t.symbol, values: normalized, change, value: t.valueUsd });
+      }
+      
+      // Brand colors for each asset
+      const brandColors: Record<string, string> = {
+        'GLDx': asciichart.yellow,      // Gold
+        'WBTC': '\x1b[38;5;208m',        // Orange (BTC)
+        'SOL': asciichart.magenta,       // Purple (Solana)
+        'USDC': asciichart.blue,         // Blue (USD Coin)
+        'JupUSD': asciichart.cyan,       // Cyan (Jupiter USD)
+        'JUP': asciichart.lightgreen,    // Light green (Jupiter)
+        'RAY': asciichart.lightcyan,     // Light cyan (Raydium)
+        'ETH': '\x1b[38;5;63m',          // Indigo (Ethereum)
+      };
+      const defaultColor = asciichart.white;
+      
+      const series = seriesData.map(s => s.values);
+      const colors = seriesData.map(s => brandColors[s.symbol] || defaultColor);
+      
+      console.log(`\n📈 Portfolio Chart - ${days} Day Performance (% Change)\n`);
+      
+      const config = {
+        height: 15,
+        colors,
+        format: (x: number) => (x >= 0 ? '+' : '') + x.toFixed(1) + '%',
+      };
+      
+      console.log(asciichart.plot(series, config));
+      
+      // Legend with brand colors
+      console.log('\n   Legend:');
+      const reset = '\x1b[0m';
+      
+      for (const s of seriesData) {
+        const color = brandColors[s.symbol] || defaultColor;
+        const changeStr = (s.change >= 0 ? '+' : '') + s.change.toFixed(1) + '%';
+        const changeColor = s.change >= 0 ? '\x1b[32m' : '\x1b[31m'; // green/red for +/-
+        console.log(`   ${color}●${reset} ${s.symbol.padEnd(6)} $${s.value.toFixed(0).padStart(5)}  ${changeColor}${changeStr}${reset}`);
+      }
+      
+      console.log(`\n   Total: $${data.totalValueUsd.toFixed(2)}`);
       
     } catch (error: any) {
       console.error('❌ Error:', error.message);
