@@ -277,9 +277,11 @@ export async function createClaimOrder(params: {
   ownerPubkey: string;
   positionPubkey: string;
 }): Promise<OrderResponse> {
-  return predictionFetch('/claim', {
+  return predictionFetch(`/positions/${params.positionPubkey}/claim`, {
     method: 'POST',
-    body: JSON.stringify(params),
+    body: JSON.stringify({
+      ownerPubkey: params.ownerPubkey,
+    }),
   });
 }
 
