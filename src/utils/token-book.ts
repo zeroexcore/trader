@@ -62,7 +62,12 @@ export function resolveToken(tickerOrAddress: string): string {
   if (tickerOrAddress.length > 32) return tickerOrAddress;
   
   const book = loadTokenBook();
-  return book[tickerOrAddress.toUpperCase()] || tickerOrAddress;
+  // Case-insensitive lookup — handles mixed-case keys like JupUSD, GLDx
+  const upper = tickerOrAddress.toUpperCase();
+  for (const [key, value] of Object.entries(book)) {
+    if (key.toUpperCase() === upper) return value;
+  }
+  return tickerOrAddress;
 }
 
 /** Reverse lookup: address → ticker */
