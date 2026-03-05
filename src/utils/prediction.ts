@@ -225,25 +225,48 @@ export async function createOrder(params: {
 }
 
 /**
- * Create a sell order to close position
+ * Create a sell order to close position (partial)
  */
 export async function createSellOrder(params: {
   ownerPubkey: string;
   marketId: string;
   isYes: boolean;
   contracts: number;
+  minSellPriceUsd?: number; // Optional limit price (e.g., 0.15 for 15 cents)
 }): Promise<OrderResponse> {
-  const { ownerPubkey, marketId, isYes, contracts } = params;
+  const { ownerPubkey, marketId, isYes, contracts, minSellPriceUsd } = params;
+
+  const body: Record<string, unknown> = {
+    ownerPubkey,
+    marketId,
+    isYes,
+    isBuy: false,
+    contracts,
+  };
+
+  // Add min sell price if specified (convert to micro USD)
+  if (minSellPriceUsd !== undefined) {
+    body.minSellPriceUsd = new Big(minSellPriceUsd).times(MICRO_USD).round(0).toString();
+  }
 
   return predictionFetch('/orders', {
     method: 'POST',
-    body: JSON.stringify({
-      ownerPubkey,
-      marketId,
-      isYes,
-      isBuy: false,
-      contracts,
-    }),
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Close entire prediction position using DELETE endpoint
+ */
+export async function closePredictionOrder(params: {
+  ownerPubkey: string;
+  positionPubkey: string;
+}): Promise<OrderResponse> {
+  const { ownerPubkey, positionPubkey } = params;
+
+  return predictionFetch(`/positions/${positionPubkey}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ ownerPubkey }),
   });
 }
 
@@ -287,8 +310,12 @@ export async function createClaimOrder(params: {
 
 /**
  * Convert micro USD to USD
+ * Handles empty strings and invalid values gracefully
  */
-export function microToUsd(microUsd: number | string): Big {
+export function microToUsd(microUsd: number | string | null | undefined): Big {
+  if (microUsd === null || microUsd === undefined || microUsd === '') {
+    return new Big(0);
+  }
   return new Big(microUsd).div(MICRO_USD);
 }
 
@@ -302,14 +329,14 @@ export function usdToMicro(usd: number | string): Big {
 /**
  * Format price from micro USD to display
  */
-export function formatPrice(microUsd: number | string): string {
+export function formatPrice(microUsd: number | string | null | undefined): string {
   return `$${microToUsd(microUsd).toFixed(2)}`;
 }
 
 /**
  * Format price as percentage (since $1 = 100%)
  */
-export function priceToPercent(microUsd: number | string): string {
+export function priceToPercent(microUsd: number | string | null | undefined): string {
   return `${microToUsd(microUsd).times(100).toFixed(1)}%`;
 }
 

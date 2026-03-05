@@ -45,6 +45,7 @@ import {
   getPositions,
   createOrder,
   createSellOrder,
+  closePredictionOrder,
   executeOrder,
   createClaimOrder,
   formatPrice,
@@ -1088,13 +1089,12 @@ predict
       for (const pos of result.positions) {
         const side = pos.isYes ? 'YES' : 'NO';
         const sideEmoji = pos.isYes ? '🟢' : '🔴';
-        const pnlValue = Big(pos.pnlUsdAfterFees);
-        const pnlEmoji = pnlValue.gte(0) ? '💰' : '💸';
+        const pnl = microToUsd(pos.pnlUsdAfterFees);
+        const pnlEmoji = pnl.gte(0) ? '💰' : '💸';
         const cost = microToUsd(pos.totalCostUsd);
         const avgPrice = microToUsd(pos.avgPriceUsd);
         const value = microToUsd(pos.valueUsd);
         const sellPrice = pos.sellPriceUsd != null ? microToUsd(pos.sellPriceUsd) : null;
-        const pnl = microToUsd(pos.pnlUsdAfterFees);
         const payout = microToUsd(pos.payoutUsd);
         const marketStatus = pos.marketMetadata?.status || 'unknown';
         const marketResult = pos.marketMetadata?.result;
@@ -1104,16 +1104,18 @@ predict
         console.log(`   Contracts: ${pos.contracts}`);
         console.log(`   Cost: $${cost.toFixed(2)} (avg $${avgPrice.toFixed(2)}/contract)`);
         
+        const pnlPct = pos.pnlUsdAfterFeesPercent ?? 0;
         if (marketStatus === 'closed') {
           const won = (marketResult === 'yes' && pos.isYes) || (marketResult === 'no' && !pos.isYes);
-          console.log(`   Status: CLOSED - Result: ${marketResult?.toUpperCase()} ${won ? '✅ WON' : '❌ LOST'}`);
-          console.log(`   ${pnlEmoji} PnL: ${pnl.gte(0) ? '+' : ''}$${pnl.toFixed(2)} (${pos.pnlUsdAfterFeesPercent >= 0 ? '+' : ''}${pos.pnlUsdAfterFeesPercent.toFixed(1)}%)`);
+          const resultStr = marketResult ? marketResult.toUpperCase() : 'PENDING';
+          console.log(`   Status: CLOSED - Result: ${resultStr} ${marketResult ? (won ? '✅ WON' : '❌ LOST') : '⏳'}`);
+          console.log(`   ${pnlEmoji} PnL: ${pnl.gte(0) ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`);
           if (won) {
             console.log(`   💵 Payout: $${payout.toFixed(2)}`);
           }
         } else {
           console.log(`   Value: $${value.toFixed(2)}${sellPrice ? ` (sell @ $${sellPrice.toFixed(2)})` : ''}`);
-          console.log(`   ${pnlEmoji} PnL: ${pnl.gte(0) ? '+' : ''}$${pnl.toFixed(2)} (${pos.pnlUsdAfterFeesPercent >= 0 ? '+' : ''}${pos.pnlUsdAfterFeesPercent.toFixed(1)}%)`);
+          console.log(`   ${pnlEmoji} PnL: ${pnl.gte(0) ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`);
           console.log(`   Payout if ${side}: $${payout.toFixed(2)}`);
         }
 
@@ -1178,7 +1180,7 @@ predict
         let totalCost = Big(0);
         
         // Collect data first
-        const posData: { title: string; odds: number; entry: number; pnl: Big; payout: Big; status: string; key: string }[] = [];
+        const posData: { title: string; odds: number | null; entry: number; pnl: Big; payout: Big; status: string; key: string }[] = [];
         
         for (const pos of result.positions) {
           const title = pos.marketMetadata.title.substring(0, 18);
@@ -1202,15 +1204,26 @@ predict
           }
           
           let status = '';
+          let displayOdds: number | null = currentOddsNum;
+          
           if (marketStatus === 'closed') {
-            const won = (marketResult === 'yes' && pos.isYes) || (marketResult === 'no' && !pos.isYes);
-            status = won ? '✅' : '❌';
+            if (marketResult) {
+              const won = (marketResult === 'yes' && pos.isYes) || (marketResult === 'no' && !pos.isYes);
+              status = won ? '✅' : '❌';
+              // Show 100% or 0% based on win/loss for clarity
+              displayOdds = won ? 100 : 0;
+            } else {
+              // Market closed but no result yet (pending settlement)
+              // Likely a win if currentOdds was high, show as pending win
+              status = '⏳';
+              displayOdds = null; // Will show as "—"
+            }
           }
           if (pos.claimable) status = '🎉';
           
           posData.push({
             title,
-            odds: currentOddsNum,
+            odds: displayOdds,
             entry: avgPrice.toNumber() * 100,
             pnl,
             payout,
@@ -1229,7 +1242,8 @@ predict
         
         for (const p of posData) {
           const pnlStr = `${p.pnl.gte(0) ? '+' : ''}$${p.pnl.toFixed(2)}`;
-          console.log(`${(p.title + (p.status ? ' ' + p.status : '')).padEnd(18)} ${(p.odds.toFixed(0) + '%').padStart(5)} ${(p.entry.toFixed(0) + '%').padStart(5)} ${pnlStr.padStart(10)} ${('$' + p.payout.toFixed(2)).padStart(7)}`);
+          const oddsStr = p.odds !== null ? `${p.odds.toFixed(0)}%` : '—';
+          console.log(`${(p.title + (p.status ? ' ' + p.status : '')).padEnd(18)} ${oddsStr.padStart(5)} ${(p.entry.toFixed(0) + '%').padStart(5)} ${pnlStr.padStart(10)} ${('$' + p.payout.toFixed(2)).padStart(7)}`);
         }
         
         console.log(`${'─'.repeat(18)} ${'─'.repeat(5)} ${'─'.repeat(5)} ${'─'.repeat(10)} ${'─'.repeat(7)}`);
@@ -1284,6 +1298,7 @@ predict
   .command('sell <market-id> <side> <contracts>')
   .description('Sell contracts to close position (side: yes/no)')
   .option('-p, --password <password>', 'Wallet password')
+  .option('-l, --limit <price>', 'Minimum sell price (limit order, e.g., 0.15 for 15 cents)')
   .action(async (marketId, side, contracts, options) => {
     const password = options.password || process.env.WALLET_PASSWORD;
     if (!password) {
@@ -1317,13 +1332,20 @@ predict
       console.log(`   Sell price: $${sellPriceUsd.toFixed(2)}`);
       console.log(`   Expected proceeds: ~$${sellPriceUsd.times(numContracts).toFixed(2)}\n`);
 
-      console.log('🔄 Creating sell order...');
+      const minSellPrice = options.limit ? parseFloat(options.limit) : undefined;
+      
+      if (minSellPrice !== undefined) {
+        console.log(`🔄 Creating LIMIT sell order (min price: $${minSellPrice.toFixed(2)})...`);
+      } else {
+        console.log('🔄 Creating sell order...');
+      }
 
       const order = await createSellOrder({
         ownerPubkey: keypair.publicKey.toBase58(),
         marketId,
         isYes,
         contracts: numContracts,
+        minSellPriceUsd: minSellPrice,
       });
 
       console.log('✍️ Signing transaction...');
@@ -1350,10 +1372,10 @@ predict
   });
 
 predict
-  .command('claim <position-pubkey>')
-  .description('Claim winnings from a resolved winning position')
+  .command('close <market-id>')
+  .description('Close entire position for a market (sell all contracts)')
   .option('-p, --password <password>', 'Wallet password')
-  .action(async (positionPubkey, options) => {
+  .action(async (marketId, options) => {
     const password = options.password || process.env.WALLET_PASSWORD;
     if (!password) {
       console.error('❌ Password required');
@@ -1368,13 +1390,108 @@ predict
 
       const connection = new Connection(rpcUrl, 'confirmed');
       const keypair = loadKeypairForSigning(password);
+      const ownerPubkey = keypair.publicKey.toBase58();
+
+      console.log(`\n🔍 Looking up position for market ${marketId}...`);
+      
+      const result = await getPositions(ownerPubkey);
+      const position = result.positions.find(p => p.marketId === marketId);
+      
+      if (!position) {
+        throw new Error(`No position found for market ${marketId}`);
+      }
+
+      const market = await getMarket(marketId);
+      const contracts = parseInt(position.contracts);
+      const sellPriceMicro = position.isYes ? (market.pricing?.sellYesPriceUsd || 0) : (market.pricing?.sellNoPriceUsd || 0);
+      const sellPriceUsd = microToUsd(sellPriceMicro);
+      const proceeds = sellPriceUsd.times(contracts);
+
+      console.log(`\n📊 Closing: ${position.marketMetadata?.title || marketId}`);
+      console.log(`   Side: ${position.isYes ? 'YES' : 'NO'}`);
+      console.log(`   Contracts: ${contracts}`);
+      console.log(`   Sell price: $${sellPriceUsd.toFixed(2)}`);
+      console.log(`   Expected proceeds: ~$${proceeds.toFixed(2)}\n`);
+
+      console.log('🔄 Creating close order...');
+
+      const order = await closePredictionOrder({
+        ownerPubkey,
+        positionPubkey: position.pubkey,
+      });
+
+      console.log('✍️ Signing transaction...');
+
+      const signature = await executeOrder(connection, keypair, order);
+
+      // Update local position
+      const localPos = findPredictionByMarket(marketId);
+      if (localPos) {
+        closePredictionPosition(localPos.id, proceeds.gte(localPos.entryValueUsd) ? 'won' : 'lost', parseFloat(proceeds.toFixed(2)));
+        console.log(`\n📊 Position ${localPos.id} closed`);
+      }
+
+      console.log('\n✅ Position closed successfully!');
+      console.log('📝 Signature:', signature);
+      console.log('🔗 View on Solscan: https://solscan.io/tx/' + signature);
+      console.log('');
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+predict
+  .command('claim <market-id-or-pubkey>')
+  .description('Claim winnings from a resolved winning position (accepts market ID or position pubkey)')
+  .option('-p, --password <password>', 'Wallet password')
+  .action(async (marketIdOrPubkey, options) => {
+    const password = options.password || process.env.WALLET_PASSWORD;
+    if (!password) {
+      console.error('❌ Password required');
+      process.exit(1);
+    }
+
+    try {
+      const rpcUrl = process.env.RPC_URL;
+      if (!rpcUrl) {
+        throw new Error('RPC_URL not set in environment');
+      }
+
+      const connection = new Connection(rpcUrl, 'confirmed');
+      const keypair = loadKeypairForSigning(password);
+      const ownerPubkey = keypair.publicKey.toBase58();
+
+      // Resolve market ID to position pubkey if needed
+      let positionPubkey = marketIdOrPubkey;
+      let marketTitle = '';
+      
+      if (marketIdOrPubkey.startsWith('POLY-')) {
+        // It's a market ID - look up position pubkey from API
+        console.log(`\n🔍 Looking up position for market ${marketIdOrPubkey}...`);
+        
+        const result = await getPositions(ownerPubkey);
+        const position = result.positions.find(p => p.marketId === marketIdOrPubkey);
+        
+        if (!position) {
+          throw new Error(`No position found for market ${marketIdOrPubkey}`);
+        }
+        
+        if (!position.claimable) {
+          throw new Error(`Position for ${position.marketMetadata.title} is not claimable yet`);
+        }
+        
+        positionPubkey = position.pubkey;
+        marketTitle = position.marketMetadata.title;
+        console.log(`   Found: ${marketTitle} (${position.contracts} contracts)`);
+      }
 
       console.log(`\n🎉 Claiming winnings...\n`);
 
       console.log('🔄 Creating claim order...');
 
       const order = await createClaimOrder({
-        ownerPubkey: keypair.publicKey.toBase58(),
+        ownerPubkey,
         positionPubkey,
       });
 
@@ -1390,6 +1507,7 @@ predict
       }
 
       console.log('\n✅ Claimed successfully!');
+      if (marketTitle) console.log(`🏆 ${marketTitle}`);
       console.log('📝 Signature:', signature);
       console.log('🔗 View on Solscan: https://solscan.io/tx/' + signature);
       console.log('');

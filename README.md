@@ -49,9 +49,10 @@ predict search "arsenal"    # search events
 predict market POLY-123     # market details + odds
 predict buy POLY-123 yes 10 # bet $10 on YES
 predict sell POLY-123 yes 5 # sell 5 contracts
+predict close POLY-123      # close entire position (dump it)
 predict positions           # view bets with PnL
-predict watch -i 10         # live odds monitoring + ASCII chart
-predict claim <pubkey>      # claim winnings
+predict watch -c            # live odds monitoring + ASCII chart
+predict claim POLY-123      # claim winnings (accepts market ID or pubkey)
 ```
 
 ### NFTs
