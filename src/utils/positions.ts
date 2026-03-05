@@ -1,7 +1,47 @@
 import fs from 'fs';
 import path from 'path';
 
-const POSITIONS_FILE = path.join(process.cwd(), 'positions.json');
+// Store positions alongside wallet in secure location
+const OPENCLAW_DIR = path.join(process.env.HOME || '', '.openclaw');
+const POSITIONS_FILE = path.join(OPENCLAW_DIR, 'trader-positions.json');
+const LEGACY_POSITIONS_FILE = path.join(process.cwd(), 'positions.json');
+
+// Ensure directory exists with secure permissions
+function ensureSecureDir(): void {
+  if (!fs.existsSync(OPENCLAW_DIR)) {
+    fs.mkdirSync(OPENCLAW_DIR, { mode: 0o700, recursive: true });
+  }
+}
+
+/**
+ * Migrate positions from legacy location (./positions.json) to secure location
+ */
+function migrateFromLegacy(): void {
+  // If new file exists, no need to migrate
+  if (fs.existsSync(POSITIONS_FILE)) {
+    return;
+  }
+  
+  // Check if legacy file exists
+  if (fs.existsSync(LEGACY_POSITIONS_FILE)) {
+    try {
+      ensureSecureDir();
+      const content = fs.readFileSync(LEGACY_POSITIONS_FILE, 'utf-8');
+      const data = JSON.parse(content);
+      
+      // Write to new secure location
+      fs.writeFileSync(POSITIONS_FILE, JSON.stringify(data, null, 2), {
+        encoding: 'utf-8',
+        mode: 0o600
+      });
+      
+      console.log(`📦 Migrated ${data.positions?.length || 0} positions to secure location: ${POSITIONS_FILE}`);
+      console.log(`⚠️  You can delete the old file: ${LEGACY_POSITIONS_FILE}`);
+    } catch (error) {
+      console.warn('Failed to migrate positions from legacy location:', error);
+    }
+  }
+}
 
 export interface Position {
   id: string;
@@ -16,9 +56,17 @@ export interface Position {
   stopLoss?: number;
   status: 'open' | 'closed' | 'won' | 'lost';
   exitPrice?: number;
+  exitAmount?: number;
+  exitValueUsd?: number;
   exitDate?: string;
   pnl?: number;
+  pnlPercent?: number;
+  durationMs?: number; // milliseconds held
   notes?: string;
+  tags?: string[];
+  // Transaction signatures for on-chain verification
+  entryTxSignature?: string;
+  exitTxSignature?: string;
   // Current price tracking for unrealized PnL
   currentPrice?: number;
   currentPriceUpdatedAt?: string;
@@ -44,6 +92,11 @@ export interface PositionsData {
  * Load positions from file
  */
 export function loadPositions(): PositionsData {
+  ensureSecureDir();
+  
+  // Migrate from legacy location if needed
+  migrateFromLegacy();
+  
   try {
     if (fs.existsSync(POSITIONS_FILE)) {
       const content = fs.readFileSync(POSITIONS_FILE, 'utf-8');
@@ -60,12 +113,24 @@ export function loadPositions(): PositionsData {
 }
 
 /**
- * Save positions to file
+ * Get the positions file path (for documentation/debugging)
+ */
+export function getPositionsFilePath(): string {
+  return POSITIONS_FILE;
+}
+
+/**
+ * Save positions to file with secure permissions
  */
 export function savePositions(data: PositionsData): void {
+  ensureSecureDir();
+  
   try {
     data.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(POSITIONS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    fs.writeFileSync(POSITIONS_FILE, JSON.stringify(data, null, 2), { 
+      encoding: 'utf-8',
+      mode: 0o600  // Only owner can read/write
+    });
   } catch (error) {
     console.error('Failed to save positions:', error);
   }
@@ -83,6 +148,8 @@ export function openPosition(params: {
   targetPrice?: number;
   stopLoss?: number;
   notes?: string;
+  tags?: string[];
+  entryTxSignature?: string;
 }): Position {
   const data = loadPositions();
   
@@ -99,6 +166,8 @@ export function openPosition(params: {
     stopLoss: params.stopLoss,
     status: 'open',
     notes: params.notes,
+    tags: params.tags,
+    entryTxSignature: params.entryTxSignature,
   };
   
   data.positions.push(position);
@@ -110,7 +179,15 @@ export function openPosition(params: {
 /**
  * Close a position
  */
-export function closePosition(positionId: string, exitPrice: number, exitAmount: number): Position | null {
+export function closePosition(
+  positionId: string, 
+  exitPrice: number, 
+  exitAmount: number,
+  options?: {
+    exitTxSignature?: string;
+    notes?: string;
+  }
+): Position | null {
   const data = loadPositions();
   const position = data.positions.find(p => p.id === positionId);
   
@@ -124,13 +201,38 @@ export function closePosition(positionId: string, exitPrice: number, exitAmount:
     return position;
   }
   
+  const exitDate = new Date();
+  const entryDate = new Date(position.entryDate);
+  
   position.status = 'closed';
   position.exitPrice = exitPrice;
-  position.exitDate = new Date().toISOString();
+  position.exitAmount = exitAmount;
+  position.exitDate = exitDate.toISOString();
   
-  // Calculate PnL
+  // Calculate exit value and PnL
   const exitValue = exitPrice * exitAmount;
-  position.pnl = exitValue - position.entryValueUsd;
+  position.exitValueUsd = exitValue;
+  
+  // PnL calculation depends on position type
+  if (position.type === 'long') {
+    position.pnl = exitValue - position.entryValueUsd;
+  } else {
+    // Short position: profit when price goes down
+    position.pnl = position.entryValueUsd - exitValue;
+  }
+  
+  position.pnlPercent = (position.pnl / position.entryValueUsd) * 100;
+  position.durationMs = exitDate.getTime() - entryDate.getTime();
+  
+  if (options?.exitTxSignature) {
+    position.exitTxSignature = options.exitTxSignature;
+  }
+  
+  if (options?.notes) {
+    position.notes = position.notes 
+      ? `${position.notes}\n[Exit] ${options.notes}`
+      : `[Exit] ${options.notes}`;
+  }
   
   savePositions(data);
   
@@ -164,13 +266,60 @@ export function getPosition(positionId: string): Position | null {
 /**
  * Update position notes
  */
-export function updatePositionNotes(positionId: string, notes: string): void {
+export function updatePositionNotes(positionId: string, notes: string, append: boolean = false): void {
   const data = loadPositions();
   const position = data.positions.find(p => p.id === positionId);
   
   if (position) {
-    position.notes = notes;
+    if (append && position.notes) {
+      position.notes = `${position.notes}\n${notes}`;
+    } else {
+      position.notes = notes;
+    }
     savePositions(data);
+  }
+}
+
+/**
+ * Add tags to a position
+ */
+export function addPositionTags(positionId: string, tags: string[]): void {
+  const data = loadPositions();
+  const position = data.positions.find(p => p.id === positionId);
+  
+  if (position) {
+    const existingTags = position.tags || [];
+    const newTags = [...new Set([...existingTags, ...tags])];
+    position.tags = newTags;
+    savePositions(data);
+  }
+}
+
+/**
+ * Get positions by tag
+ */
+export function getPositionsByTag(tag: string): Position[] {
+  const data = loadPositions();
+  return data.positions.filter(p => p.tags?.includes(tag));
+}
+
+/**
+ * Format duration in human readable format
+ */
+function formatDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days > 0) {
+    return `${days}d ${hours % 24}h`;
+  } else if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m`;
+  } else {
+    return `${seconds}s`;
   }
 }
 
@@ -364,9 +513,29 @@ export function displayPositions(positions: Position[]): void {
     
     if (pos.status === 'closed' && pos.exitPrice && pos.pnl !== undefined) {
       const pnlEmoji = pos.pnl >= 0 ? '💰' : '💸';
-      console.log(`   Exit: $${pos.exitPrice.toFixed(4)}`);
-      console.log(`   PnL: ${pnlEmoji} ${pos.pnl >= 0 ? '+' : ''}$${pos.pnl.toFixed(2)} (${((pos.pnl / pos.entryValueUsd) * 100).toFixed(2)}%)`);
+      const exitAmount = pos.exitAmount ?? pos.entryAmount;
+      const exitValue = pos.exitValueUsd ?? (pos.exitPrice * exitAmount);
+      const pnlPct = pos.pnlPercent ?? ((pos.pnl / pos.entryValueUsd) * 100);
+      
+      console.log(`   Exit: $${pos.exitPrice.toFixed(4)} × ${exitAmount.toFixed(4)} = $${exitValue.toFixed(2)}`);
+      console.log(`   PnL: ${pnlEmoji} ${pos.pnl >= 0 ? '+' : ''}$${pos.pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)`);
       console.log(`   Closed: ${new Date(pos.exitDate!).toLocaleString()}`);
+      
+      if (pos.durationMs) {
+        console.log(`   Duration: ${formatDuration(pos.durationMs)}`);
+      }
+      
+      if (pos.exitTxSignature) {
+        console.log(`   Exit Tx: ${pos.exitTxSignature.slice(0, 20)}...`);
+      }
+    }
+    
+    if (pos.tags && pos.tags.length > 0) {
+      console.log(`   Tags: ${pos.tags.join(', ')}`);
+    }
+    
+    if (pos.entryTxSignature) {
+      console.log(`   Entry Tx: ${pos.entryTxSignature.slice(0, 20)}...`);
     }
     
     if (pos.notes) {
@@ -389,6 +558,121 @@ export function calculateTotalPnL(): { realized: number; count: number } {
   return {
     realized,
     count: closedPositions.length,
+  };
+}
+
+export interface PositionStats {
+  totalPositions: number;
+  openPositions: number;
+  closedPositions: number;
+  totalInvested: number;
+  currentOpenValue: number;
+  realizedPnl: number;
+  unrealizedPnl: number;
+  winCount: number;
+  lossCount: number;
+  winRate: number;
+  avgWin: number;
+  avgLoss: number;
+  avgHoldTime: number; // in hours
+  bestTrade: { symbol: string; pnl: number; pnlPercent: number } | null;
+  worstTrade: { symbol: string; pnl: number; pnlPercent: number } | null;
+  byType: {
+    long: { count: number; pnl: number };
+    short: { count: number; pnl: number };
+    prediction: { count: number; pnl: number };
+  };
+}
+
+/**
+ * Calculate comprehensive position statistics
+ */
+export function getPositionStats(): PositionStats {
+  const data = loadPositions();
+  const positions = data.positions;
+  
+  const openPos = positions.filter(p => p.status === 'open');
+  const closedPos = positions.filter(p => p.status === 'closed' || p.status === 'won' || p.status === 'lost');
+  
+  // Wins and losses
+  const wins = closedPos.filter(p => (p.pnl || 0) > 0);
+  const losses = closedPos.filter(p => (p.pnl || 0) <= 0);
+  
+  // PnL calculations
+  const realizedPnl = closedPos.reduce((sum, p) => sum + (p.pnl || 0), 0);
+  
+  // Unrealized PnL for open positions with current prices
+  let unrealizedPnl = 0;
+  let currentOpenValue = 0;
+  for (const pos of openPos) {
+    if (pos.currentPrice !== undefined) {
+      const currentValue = pos.currentPrice * pos.entryAmount;
+      currentOpenValue += currentValue;
+      if (pos.type === 'long') {
+        unrealizedPnl += currentValue - pos.entryValueUsd;
+      } else if (pos.type === 'short') {
+        unrealizedPnl += pos.entryValueUsd - currentValue;
+      }
+    } else {
+      currentOpenValue += pos.entryValueUsd;
+    }
+  }
+  
+  // Average hold time (for positions with duration)
+  const durationsMs = closedPos
+    .filter(p => p.durationMs !== undefined)
+    .map(p => p.durationMs!);
+  const avgHoldTime = durationsMs.length > 0
+    ? (durationsMs.reduce((a, b) => a + b, 0) / durationsMs.length) / (1000 * 60 * 60)
+    : 0;
+  
+  // Best and worst trades
+  let bestTrade: PositionStats['bestTrade'] = null;
+  let worstTrade: PositionStats['worstTrade'] = null;
+  
+  for (const pos of closedPos) {
+    if (pos.pnl === undefined) continue;
+    const pnlPct = pos.pnlPercent ?? ((pos.pnl / pos.entryValueUsd) * 100);
+    
+    if (!bestTrade || pos.pnl > bestTrade.pnl) {
+      bestTrade = { symbol: pos.tokenSymbol, pnl: pos.pnl, pnlPercent: pnlPct };
+    }
+    if (!worstTrade || pos.pnl < worstTrade.pnl) {
+      worstTrade = { symbol: pos.tokenSymbol, pnl: pos.pnl, pnlPercent: pnlPct };
+    }
+  }
+  
+  // By type
+  const byType = {
+    long: { count: 0, pnl: 0 },
+    short: { count: 0, pnl: 0 },
+    prediction: { count: 0, pnl: 0 },
+  };
+  
+  for (const pos of closedPos) {
+    if (pos.type in byType) {
+      byType[pos.type].count++;
+      byType[pos.type].pnl += pos.pnl || 0;
+    }
+  }
+  
+  return {
+    totalPositions: positions.length,
+    openPositions: openPos.length,
+    closedPositions: closedPos.length,
+    totalInvested: openPos.reduce((sum, p) => sum + p.entryValueUsd, 0),
+    currentOpenValue,
+    realizedPnl,
+    unrealizedPnl,
+    winCount: wins.length,
+    lossCount: losses.length,
+    winRate: closedPos.length > 0 ? (wins.length / closedPos.length) * 100 : 0,
+    avgWin: wins.length > 0 ? wins.reduce((sum, p) => sum + (p.pnl || 0), 0) / wins.length : 0,
+    avgLoss: losses.length > 0 ? losses.reduce((sum, p) => sum + (p.pnl || 0), 0) / losses.length : 0,
+    avgHoldTime,
+    bestTrade,
+    worstTrade,
+    byType,
   };
 }
 

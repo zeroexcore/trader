@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 import { Connection } from '@solana/web3.js';
 import { Command } from 'commander';
 import dotenv from 'dotenv';
@@ -20,9 +20,14 @@ import {
   findPredictionByPubkey,
   getAllPositions,
   getOpenPositions,
+  getPosition,
+  getPositionStats,
   openPosition,
   openPredictionPosition,
-  updatePositionPrices
+  updatePositionPrices,
+  updatePositionNotes,
+  addPositionTags,
+  getPositionsByTag,
 } from './utils/positions.js';
 import {
   addToken,
@@ -52,15 +57,42 @@ import {
   priceToPercent,
   microToUsd,
 } from './utils/prediction.js';
+import {
+  getPoolStats,
+  getAllCustodyInfo,
+  getOpenPositions as getPerpsPositions,
+  calculatePnl as calculatePerpsPnl,
+  CUSTODY,
+} from './utils/perps/index.js';
+import { PublicKey } from '@solana/web3.js';
 
 dotenv.config();
 
 const program = new Command();
 
 program
-  .name('openclaw-trader')
-  .description('Solana trading CLI for OpenClaw - Manage RWA tokens and crypto assets')
+  .name('trader')
+  .description('Solana trading CLI - Trade tokens, track portfolio, bet on prediction markets')
   .version('1.0.0');
+
+// Helper to get RPC URL (defaults to Helius if HELIUS_API_KEY is set)
+function getRpcUrl(): string {
+  if (process.env.RPC_URL) return process.env.RPC_URL;
+  if (process.env.HELIUS_API_KEY) {
+    return `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`;
+  }
+  throw new Error('RPC_URL or HELIUS_API_KEY must be set');
+}
+
+// Helper to get wallet password from environment
+function getPassword(): string {
+  const password = process.env.WALLET_PASSWORD;
+  if (!password) {
+    console.error('❌ WALLET_PASSWORD environment variable required');
+    process.exit(1);
+  }
+  return password;
+}
 
 // Wallet Management Commands
 const wallet = program.command('wallet').description('Wallet management commands');
@@ -68,13 +100,8 @@ const wallet = program.command('wallet').description('Wallet management commands
 wallet
   .command('generate')
   .description('Generate a new encrypted wallet (ONE TIME ONLY)')
-  .option('-p, --password <password>', 'Encryption password')
-  .action(async (options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required: use --password or set WALLET_PASSWORD env var');
-      process.exit(1);
-    }
+  .action(async () => {
+    const password = getPassword();
 
     try {
       const publicKey = generateWallet(password);
@@ -83,6 +110,7 @@ wallet
       console.log('\n⚠️  IMPORTANT SECURITY NOTES:');
       console.log('   • Store your password securely - it cannot be recovered');
       console.log('   • Never share your password or private key');
+      console.log('   • Run "trader wallet export" ON THE SERVER to backup your private key');
       console.log('   • Agent should ONLY use public address for operations');
     } catch (error: any) {
       console.error('❌ Error:', error.message);
@@ -93,13 +121,8 @@ wallet
 wallet
   .command('address')
   .description('Get wallet address (safe to share)')
-  .option('-p, --password <password>', 'Encryption password')
-  .action(async (options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
+  .action(async () => {
+    const password = getPassword();
 
     try {
       const address = getWalletAddress(password);
@@ -113,16 +136,11 @@ wallet
 wallet
   .command('export')
   .description('Export private key for backup (KEEP SECRET!)')
-  .option('-p, --password <password>', 'Encryption password')
-  .action(async (options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
+  .action(async () => {
+    const password = getPassword();
 
     try {
-      const privateKey = exportPrivateKey(password);
+      const privateKey = await exportPrivateKey(password);
       console.log('\n⚠️  WARNING: PRIVATE KEY - NEVER SHARE THIS!\n');
       console.log('📋 Private Key (base58):');
       console.log(privateKey);
@@ -169,14 +187,9 @@ function generatePriceHistory(currentPrice: number, points: number = 20, volatil
 portfolio
   .command('view')
   .description('View all token holdings with USD values')
-  .option('-p, --password <password>', 'Wallet password')
   .option('-c, --charts', 'Show sparkline charts', false)
   .action(async (options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
+    const password = getPassword();
 
     try {
       const address = getWalletAddress(password);
@@ -226,14 +239,9 @@ portfolio
 portfolio
   .command('pnl <mint>')
   .description('Calculate PnL for a specific token (use ticker or address)')
-  .option('-p, --password <password>', 'Wallet password')
-  .action(async (mintOrTicker, options) => {
+  .action(async (mintOrTicker) => {
     const mint = resolveToken(mintOrTicker);
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
+    const password = getPassword();
 
     try {
       const address = getWalletAddress(password);
@@ -271,14 +279,8 @@ portfolio
   .command('watch')
   .description('Watch portfolio with live price updates')
   .option('-i, --interval <seconds>', 'Refresh interval in seconds', '30')
-  .option('-p, --password <password>', 'Wallet password')
   .action(async (options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
-    
+    const password = getPassword();
     const interval = parseInt(options.interval) * 1000;
     const address = getWalletAddress(password);
     
@@ -338,15 +340,9 @@ portfolio
 portfolio
   .command('chart <token>')
   .description('Show price chart with B/S markers from trade history')
-  .option('-p, --password <password>', 'Wallet password')
   .option('-d, --days <days>', 'Number of days of history', '7')
   .action(async (tokenOrTicker, options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
-    
+    const password = getPassword();
     const mint = resolveToken(tokenOrTicker);
     const address = getWalletAddress(password);
     
@@ -474,15 +470,9 @@ portfolio
 portfolio
   .command('charts')
   .description('Show all holdings on one chart (normalized % change)')
-  .option('-p, --password <password>', 'Wallet password')
   .option('-d, --days <days>', 'Number of days of history', '7')
   .action(async (options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
-    
+    const password = getPassword();
     try {
       const address = getWalletAddress(password);
       const data = await getPortfolio(address);
@@ -617,23 +607,15 @@ trade
 trade
   .command('swap <input-mint> <output-mint> <amount>')
   .description('Execute swap (amount in human-readable format, e.g., 400 for 400 USDC)')
-  .option('-p, --password <password>', 'Wallet password')
   .option('-s, --slippage <bps>', 'Slippage in basis points', '50')
   .option('--priority-fee <lamports>', 'Priority fee in lamports')
   .action(async (inputMintOrTicker, outputMintOrTicker, amount, options) => {
     const inputMint = resolveToken(inputMintOrTicker);
     const outputMint = resolveToken(outputMintOrTicker);
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
+    const password = getPassword();
 
     try {
-      const rpcUrl = process.env.RPC_URL;
-      if (!rpcUrl) {
-        throw new Error('RPC_URL not set in environment');
-      }
+      const rpcUrl = getRpcUrl();
 
       const connection = new Connection(rpcUrl, 'confirmed');
       const keypair = loadKeypairForSigning(password);
@@ -783,8 +765,11 @@ positions
   .option('-t, --target <price>', 'Target price')
   .option('-s, --stop <price>', 'Stop loss price')
   .option('-n, --notes <notes>', 'Position notes')
+  .option('--tags <tags>', 'Comma-separated tags (e.g., "swing,momentum")')
+  .option('--tx <signature>', 'Entry transaction signature')
   .action((type, tokenOrTicker, amount, price, options) => {
     const token = resolveToken(tokenOrTicker);
+    const tags = options.tags ? options.tags.split(',').map((t: string) => t.trim()) : undefined;
 
     const position = openPosition({
       type: type.toLowerCase() as 'long' | 'short',
@@ -795,6 +780,8 @@ positions
       targetPrice: options.target ? parseFloat(options.target) : undefined,
       stopLoss: options.stop ? parseFloat(options.stop) : undefined,
       notes: options.notes,
+      tags,
+      entryTxSignature: options.tx,
     });
 
     console.log(`\n✅ Opened ${type.toUpperCase()} position:`);
@@ -804,13 +791,150 @@ positions
 positions
   .command('close <position-id> <exit-price> <exit-amount>')
   .description('Close an open position')
-  .action((positionId, exitPrice, exitAmount) => {
-    const position = closePosition(positionId, parseFloat(exitPrice), parseFloat(exitAmount));
+  .option('-n, --notes <notes>', 'Exit notes')
+  .option('--tx <signature>', 'Exit transaction signature')
+  .action((positionId, exitPrice, exitAmount, options) => {
+    const position = closePosition(
+      positionId, 
+      parseFloat(exitPrice), 
+      parseFloat(exitAmount),
+      {
+        exitTxSignature: options.tx,
+        notes: options.notes,
+      }
+    );
 
     if (position) {
       console.log(`\n✅ Closed position:`);
       displayPositions([position]);
     }
+  });
+
+positions
+  .command('note <position-id> <note>')
+  .description('Add a note to a position')
+  .option('-a, --append', 'Append to existing notes instead of replacing')
+  .action((positionId, note, options) => {
+    updatePositionNotes(positionId, note, options.append);
+    const position = getPosition(positionId);
+    if (position) {
+      console.log(`\n✅ Updated notes for position ${positionId}:`);
+      console.log(`   Notes: ${position.notes}`);
+    } else {
+      console.error(`❌ Position not found: ${positionId}`);
+    }
+  });
+
+positions
+  .command('tag <position-id> <tags>')
+  .description('Add tags to a position (comma-separated)')
+  .action((positionId, tags) => {
+    const tagList = tags.split(',').map((t: string) => t.trim());
+    addPositionTags(positionId, tagList);
+    const position = getPosition(positionId);
+    if (position) {
+      console.log(`\n✅ Updated tags for position ${positionId}:`);
+      console.log(`   Tags: ${position.tags?.join(', ')}`);
+    } else {
+      console.error(`❌ Position not found: ${positionId}`);
+    }
+  });
+
+positions
+  .command('show <position-id>')
+  .description('Show details for a specific position')
+  .action((positionId) => {
+    const position = getPosition(positionId);
+    if (position) {
+      displayPositions([position]);
+    } else {
+      console.error(`❌ Position not found: ${positionId}`);
+    }
+  });
+
+positions
+  .command('filter <tag>')
+  .description('List positions by tag')
+  .action((tag) => {
+    const pos = getPositionsByTag(tag);
+    if (pos.length === 0) {
+      console.log(`\n📊 No positions found with tag: ${tag}`);
+    } else {
+      console.log(`\n📊 Positions with tag "${tag}":\n`);
+      displayPositions(pos);
+    }
+  });
+
+positions
+  .command('stats')
+  .description('Show position statistics and performance')
+  .action(() => {
+    const stats = getPositionStats();
+    
+    console.log('\n╔═══════════════════════════════════════════════════════════════╗');
+    console.log('║                     POSITION STATISTICS                        ║');
+    console.log('╚═══════════════════════════════════════════════════════════════╝\n');
+    
+    // Overview
+    console.log('📊 OVERVIEW');
+    console.log(`   Total Positions: ${stats.totalPositions}`);
+    console.log(`   Open: ${stats.openPositions} | Closed: ${stats.closedPositions}`);
+    console.log('');
+    
+    // Financial
+    console.log('💰 FINANCIALS');
+    console.log(`   Open Position Value: $${stats.currentOpenValue.toFixed(2)}`);
+    const unrealizedEmoji = stats.unrealizedPnl >= 0 ? '📈' : '📉';
+    console.log(`   Unrealized PnL: ${unrealizedEmoji} ${stats.unrealizedPnl >= 0 ? '+' : ''}$${stats.unrealizedPnl.toFixed(2)}`);
+    const realizedEmoji = stats.realizedPnl >= 0 ? '💰' : '💸';
+    console.log(`   Realized PnL: ${realizedEmoji} ${stats.realizedPnl >= 0 ? '+' : ''}$${stats.realizedPnl.toFixed(2)}`);
+    const totalPnl = stats.realizedPnl + stats.unrealizedPnl;
+    const totalEmoji = totalPnl >= 0 ? '🏆' : '📉';
+    console.log(`   Total PnL: ${totalEmoji} ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`);
+    console.log('');
+    
+    // Win/Loss
+    if (stats.closedPositions > 0) {
+      console.log('🎯 PERFORMANCE');
+      console.log(`   Win Rate: ${stats.winRate.toFixed(1)}% (${stats.winCount}W / ${stats.lossCount}L)`);
+      console.log(`   Avg Win: +$${stats.avgWin.toFixed(2)}`);
+      console.log(`   Avg Loss: $${stats.avgLoss.toFixed(2)}`);
+      if (stats.avgHoldTime > 0) {
+        const holdStr = stats.avgHoldTime >= 24 
+          ? `${(stats.avgHoldTime / 24).toFixed(1)} days`
+          : `${stats.avgHoldTime.toFixed(1)} hours`;
+        console.log(`   Avg Hold Time: ${holdStr}`);
+      }
+      console.log('');
+      
+      // Best/Worst
+      if (stats.bestTrade) {
+        console.log('🏆 BEST TRADE');
+        console.log(`   ${stats.bestTrade.symbol}: +$${stats.bestTrade.pnl.toFixed(2)} (+${stats.bestTrade.pnlPercent.toFixed(1)}%)`);
+      }
+      if (stats.worstTrade) {
+        console.log('📉 WORST TRADE');
+        console.log(`   ${stats.worstTrade.symbol}: $${stats.worstTrade.pnl.toFixed(2)} (${stats.worstTrade.pnlPercent.toFixed(1)}%)`);
+      }
+      console.log('');
+      
+      // By Type
+      console.log('📈 BY TYPE');
+      if (stats.byType.long.count > 0) {
+        const longEmoji = stats.byType.long.pnl >= 0 ? '💰' : '💸';
+        console.log(`   Long: ${stats.byType.long.count} trades | ${longEmoji} ${stats.byType.long.pnl >= 0 ? '+' : ''}$${stats.byType.long.pnl.toFixed(2)}`);
+      }
+      if (stats.byType.short.count > 0) {
+        const shortEmoji = stats.byType.short.pnl >= 0 ? '💰' : '💸';
+        console.log(`   Short: ${stats.byType.short.count} trades | ${shortEmoji} ${stats.byType.short.pnl >= 0 ? '+' : ''}$${stats.byType.short.pnl.toFixed(2)}`);
+      }
+      if (stats.byType.prediction.count > 0) {
+        const predEmoji = stats.byType.prediction.pnl >= 0 ? '💰' : '💸';
+        console.log(`   Predictions: ${stats.byType.prediction.count} bets | ${predEmoji} ${stats.byType.prediction.pnl >= 0 ? '+' : ''}$${stats.byType.prediction.pnl.toFixed(2)}`);
+      }
+    }
+    
+    console.log('');
   });
 
 positions
@@ -969,14 +1093,9 @@ predict
 predict
   .command('buy <market-id> <side> <amount>')
   .description('Buy YES or NO contracts (side: yes/no, amount in USD)')
-  .option('-p, --password <password>', 'Wallet password')
   .option('--max-price <price>', 'Maximum price per contract in USD')
   .action(async (marketId, side, amount, options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
+    const password = getPassword();
 
     const isYes = side.toLowerCase() === 'yes';
     if (side.toLowerCase() !== 'yes' && side.toLowerCase() !== 'no') {
@@ -985,10 +1104,7 @@ predict
     }
 
     try {
-      const rpcUrl = process.env.RPC_URL;
-      if (!rpcUrl) {
-        throw new Error('RPC_URL not set in environment');
-      }
+      const rpcUrl = getRpcUrl();
 
       const connection = new Connection(rpcUrl, 'confirmed');
       const keypair = loadKeypairForSigning(password);
@@ -1061,14 +1177,9 @@ predict
 predict
   .command('positions')
   .description('View your prediction market positions')
-  .option('-p, --password <password>', 'Wallet password')
   .option('-a, --all', 'Show all positions including closed')
   .action(async (options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
+    const password = getPassword();
 
     try {
       const address = getWalletAddress(password);
@@ -1142,15 +1253,9 @@ predict
   .command('watch')
   .description('Watch positions with live odds and PnL updates')
   .option('-i, --interval <seconds>', 'Refresh interval in seconds', '30')
-  .option('-p, --password <password>', 'Wallet password')
   .option('-c, --chart', 'Show ASCII chart of odds history', false)
   .action(async (options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
-    
+    const password = getPassword();
     const interval = parseInt(options.interval) * 1000;
     const address = getWalletAddress(password);
     
@@ -1297,14 +1402,9 @@ predict
 predict
   .command('sell <market-id> <side> <contracts>')
   .description('Sell contracts to close position (side: yes/no)')
-  .option('-p, --password <password>', 'Wallet password')
   .option('-l, --limit <price>', 'Minimum sell price (limit order, e.g., 0.15 for 15 cents)')
   .action(async (marketId, side, contracts, options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
+    const password = getPassword();
 
     const isYes = side.toLowerCase() === 'yes';
     if (side.toLowerCase() !== 'yes' && side.toLowerCase() !== 'no') {
@@ -1313,10 +1413,7 @@ predict
     }
 
     try {
-      const rpcUrl = process.env.RPC_URL;
-      if (!rpcUrl) {
-        throw new Error('RPC_URL not set in environment');
-      }
+      const rpcUrl = getRpcUrl();
 
       const connection = new Connection(rpcUrl, 'confirmed');
       const keypair = loadKeypairForSigning(password);
@@ -1374,19 +1471,11 @@ predict
 predict
   .command('close <market-id>')
   .description('Close entire position for a market (sell all contracts)')
-  .option('-p, --password <password>', 'Wallet password')
-  .action(async (marketId, options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
+  .action(async (marketId) => {
+    const password = getPassword();
 
     try {
-      const rpcUrl = process.env.RPC_URL;
-      if (!rpcUrl) {
-        throw new Error('RPC_URL not set in environment');
-      }
+      const rpcUrl = getRpcUrl();
 
       const connection = new Connection(rpcUrl, 'confirmed');
       const keypair = loadKeypairForSigning(password);
@@ -1444,19 +1533,11 @@ predict
 predict
   .command('claim <market-id-or-pubkey>')
   .description('Claim winnings from a resolved winning position (accepts market ID or position pubkey)')
-  .option('-p, --password <password>', 'Wallet password')
-  .action(async (marketIdOrPubkey, options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
+  .action(async (marketIdOrPubkey) => {
+    const password = getPassword();
 
     try {
-      const rpcUrl = process.env.RPC_URL;
-      if (!rpcUrl) {
-        throw new Error('RPC_URL not set in environment');
-      }
+      const rpcUrl = getRpcUrl();
 
       const connection = new Connection(rpcUrl, 'confirmed');
       const keypair = loadKeypairForSigning(password);
@@ -1629,14 +1710,8 @@ nft
 nft
   .command('portfolio')
   .description('View your NFT holdings')
-  .option('-p, --password <password>', 'Wallet password')
-  .action(async (options) => {
-    const password = options.password || process.env.WALLET_PASSWORD;
-    if (!password) {
-      console.error('❌ Password required');
-      process.exit(1);
-    }
-    
+  .action(async () => {
+    const password = getPassword();
     try {
       const address = getWalletAddress(password);
       console.log(`\n🖼️ Fetching NFTs for ${address}...\n`);
@@ -1766,6 +1841,149 @@ crypt
       console.error('❌ Error:', error.message);
       process.exit(1);
     }
+  });
+
+// ═══════════════════════════════════════════════════════════════
+// Jupiter Perpetuals Commands (Leverage Trading)
+// ═══════════════════════════════════════════════════════════════
+const perps = program.command('perps').description('Jupiter Perpetuals - leverage trading on SOL/ETH/BTC');
+
+perps
+  .command('pool')
+  .description('View JLP pool stats and AUM')
+  .action(async () => {
+    try {
+      const rpcUrl = process.env.HELIUS_API_KEY 
+        ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+        : 'https://api.mainnet-beta.solana.com';
+      const connection = new Connection(rpcUrl);
+      
+      console.log('\n📊 Jupiter Perpetuals Pool Stats\n');
+      
+      const stats = await getPoolStats(connection);
+      console.log(`💰 Pool AUM: $${stats.aumUsd.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`);
+      console.log(`\n📈 Available Markets: SOL-PERP, ETH-PERP, BTC-PERP`);
+      console.log(`⚡ Max Leverage: Up to 100x`);
+      console.log(`💸 Fees: 0.06% open/close\n`);
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+perps
+  .command('markets')
+  .description('View available perps markets and fees')
+  .action(async () => {
+    try {
+      const rpcUrl = process.env.HELIUS_API_KEY 
+        ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+        : 'https://api.mainnet-beta.solana.com';
+      const connection = new Connection(rpcUrl);
+      
+      console.log('\n📊 Jupiter Perpetuals Markets\n');
+      
+      const custodies = await getAllCustodyInfo(connection);
+      
+      console.log('Market      Max Lev   Open Fee   Close Fee');
+      console.log('─────────── ──────── ────────── ──────────');
+      
+      for (const c of custodies) {
+        const maxLev = `${c.maxLeverage}x`.padEnd(8);
+        const openFee = `${(c.openFeeBps / 100).toFixed(2)}%`.padEnd(10);
+        const closeFee = `${(c.closeFeeBps / 100).toFixed(2)}%`;
+        console.log(`${c.name.padEnd(11)} ${maxLev} ${openFee} ${closeFee}`);
+      }
+      
+      console.log('\n💡 Trade at: https://jup.ag/perps\n');
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+perps
+  .command('positions')
+  .description('View your open perps positions')
+  .option('-w, --wallet <address>', 'Wallet address (defaults to configured wallet)')
+  .action(async (options) => {
+    try {
+      const rpcUrl = process.env.HELIUS_API_KEY 
+        ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+        : 'https://api.mainnet-beta.solana.com';
+      const connection = new Connection(rpcUrl);
+      
+      let walletAddress = options.wallet;
+      if (!walletAddress) {
+        const password = process.env.WALLET_PASSWORD;
+        if (password) {
+          walletAddress = getWalletAddress(password);
+        } else {
+          console.error('❌ Wallet address required: use --wallet or set WALLET_PASSWORD');
+          process.exit(1);
+        }
+      }
+      
+      console.log(`\n📊 Perps Positions for ${walletAddress.slice(0, 8)}...\n`);
+      
+      const positions = await getPerpsPositions(connection, new PublicKey(walletAddress));
+      
+      if (positions.length === 0) {
+        console.log('No open perps positions found');
+        console.log('\n💡 Open a position at: https://jup.ag/perps\n');
+        return;
+      }
+      
+      console.log('Market  Side   Size         Collateral   Leverage  Entry');
+      console.log('─────── ────── ──────────── ──────────── ───────── ──────────');
+      
+      for (const pos of positions) {
+        const side = pos.side.toUpperCase().padEnd(6);
+        const size = `$${pos.sizeUsd.toFixed(2)}`.padEnd(12);
+        const collateral = `$${pos.collateralUsd.toFixed(2)}`.padEnd(12);
+        const leverage = `${pos.leverage.toFixed(1)}x`.padEnd(9);
+        const entry = `$${pos.entryPrice.toFixed(2)}`;
+        console.log(`${pos.custody.padEnd(7)} ${side} ${size} ${collateral} ${leverage} ${entry}`);
+      }
+      
+      console.log('');
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  });
+
+perps
+  .command('info')
+  .description('How Jupiter Perps works')
+  .action(() => {
+    console.log(`
+╔═══════════════════════════════════════════════════════════════╗
+║              JUPITER PERPETUALS - QUICK GUIDE                 ║
+╠═══════════════════════════════════════════════════════════════╣
+║                                                               ║
+║  MARKETS: SOL-PERP, ETH-PERP, BTC-PERP                       ║
+║  LEVERAGE: Up to 100x                                         ║
+║  COLLATERAL: SOL, USDC, or USDT                              ║
+║                                                               ║
+║  FEES:                                                        ║
+║  • Open/Close: 0.06% of position size                        ║
+║  • Borrow: Hourly rate based on utilization                  ║
+║                                                               ║
+║  LONG = Profit when price goes UP                            ║
+║  SHORT = Profit when price goes DOWN                         ║
+║                                                               ║
+║  LIQUIDATION:                                                 ║
+║  • Happens when losses exceed collateral margin              ║
+║  • Higher leverage = closer liquidation price                ║
+║  • Set stop-losses to protect capital                        ║
+║                                                               ║
+║  ⚠️  WARNING: Leverage amplifies both gains AND losses       ║
+║  Start small (2-5x) until you understand the mechanics       ║
+║                                                               ║
+║  🔗 Trade at: https://jup.ag/perps                           ║
+╚═══════════════════════════════════════════════════════════════╝
+`);
   });
 
 program.parse();

@@ -10,8 +10,10 @@ const ALGORITHM = 'aes-256-gcm';
 /**
  * Generate a new Solana keypair and securely store it
  * SECURITY: Wallet is encrypted at rest. Agent should NEVER disclose the private key.
+ * NOTE: This can be run by agent (one-time operation). Export requires manual confirmation.
  */
 export function generateWallet(password: string): PublicKey {
+  
   // Create .openclaw directory if it doesn't exist
   if (!fs.existsSync(WALLET_DIR)) {
     fs.mkdirSync(WALLET_DIR, { mode: 0o700, recursive: true });
@@ -103,11 +105,90 @@ export function getWalletAddress(password: string): string {
   return publicKey.toBase58();
 }
 
+import * as readline from 'readline';
+
+// Word list for generating confirmation phrases
+const CONFIRM_WORDS = [
+  'alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel',
+  'india', 'juliet', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa',
+  'quebec', 'romeo', 'sierra', 'tango', 'uniform', 'victor', 'whiskey', 'xray',
+  'yankee', 'zulu', 'red', 'blue', 'green', 'orange', 'purple', 'yellow'
+];
+
+/**
+ * Generate a random confirmation phrase
+ */
+function generateConfirmPhrase(): string {
+  const words: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const idx = Math.floor(Math.random() * CONFIRM_WORDS.length);
+    words.push(CONFIRM_WORDS[idx]);
+  }
+  return words.join('-');
+}
+
+/**
+ * Require user to type a confirmation phrase
+ * This prevents automated extraction via agents/bots
+ */
+export async function requireManualConfirmation(action: string): Promise<void> {
+  // Check for agent environment - hard block
+  const agentIndicators = [
+    'OPENCLAW_SESSION',
+    'OPENCLAW_AGENT',
+    'OPENCLAW_CHANNEL',
+    'TELEGRAM_BOT_TOKEN',
+    'DISCORD_TOKEN', 
+    'SLACK_BOT_TOKEN',
+  ];
+  
+  if (agentIndicators.some(env => process.env[env])) {
+    throw new Error(
+      '🔒 SECURITY: This command cannot be run via agent/bot.\n' +
+      'SSH into your server and run directly: trader wallet export'
+    );
+  }
+
+  const phrase = generateConfirmPhrase();
+  
+  console.log('\n🔒 SECURITY CONFIRMATION REQUIRED');
+  console.log(`   Action: ${action}`);
+  console.log(`\n   To confirm, type this phrase exactly: ${phrase}\n`);
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve, reject) => {
+    // Timeout after 30 seconds
+    const timeout = setTimeout(() => {
+      rl.close();
+      reject(new Error('Confirmation timed out. Please try again.'));
+    }, 30000);
+
+    rl.question('   Confirm: ', (answer) => {
+      clearTimeout(timeout);
+      rl.close();
+      
+      if (answer.trim().toLowerCase() === phrase.toLowerCase()) {
+        resolve();
+      } else {
+        reject(new Error('Confirmation phrase did not match. Aborting for security.'));
+      }
+    });
+  });
+}
+
 /**
  * Export private key as base58 string for backup
  * WARNING: Only use this for secure backup. Never share.
+ * SECURITY: Requires manual confirmation - cannot be automated via agent/remote.
  */
-export function exportPrivateKey(password: string): string {
+export async function exportPrivateKey(password: string): Promise<string> {
+  // Security check: require manual confirmation
+  await requireManualConfirmation('Export wallet private key');
+  
   const keypair = loadKeypairForSigning(password);
   // Convert secret key (Uint8Array) to base58 for Phantom/Solflare import
   const bs58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';

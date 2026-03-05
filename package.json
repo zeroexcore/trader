@@ -1,15 +1,23 @@
 {
-  "name": "openclaw-trader",
+  "name": "@zeroexcore/trader",
   "version": "1.0.0",
-  "description": "Solana trading CLI for OpenClaw - Trade RWA tokens and crypto assets",
+  "description": "Solana trading CLI - Trade tokens, track portfolio, bet on prediction markets",
   "type": "module",
+  "main": "./dist/cli.js",
   "bin": {
-    "openclaw-trader": "./src/cli.ts"
+    "trader": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli.ts",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "solana",
@@ -22,6 +30,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@coral-xyz/anchor": "0.29.0",
+    "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.95.8",
     "asciichart": "^1.5.25",
     "big.js": "^7.0.1",
