@@ -742,14 +742,20 @@ export function closePredictionPosition(
   position.status = outcome;
   position.exitDate = new Date().toISOString();
   
+  const contracts = position.prediction?.contracts ?? position.entryAmount;
   if (outcome === 'won') {
     const payout = payoutUsd ?? position.prediction?.payoutIfWin ?? 0;
     position.exitPrice = 1; // Contract settled at $1
+    position.exitAmount = contracts;
+    position.exitValueUsd = payout;
     position.pnl = payout - position.entryValueUsd;
   } else {
     position.exitPrice = 0; // Contract settled at $0
+    position.exitAmount = contracts;
+    position.exitValueUsd = 0;
     position.pnl = -position.entryValueUsd;
   }
+  position.pnlPercent = (position.pnl / position.entryValueUsd) * 100;
   
   savePositions(data);
   return position;
