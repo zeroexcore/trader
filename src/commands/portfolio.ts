@@ -1,7 +1,9 @@
 import { Command } from 'commander';
+import Big from 'big.js';
 import { getPortfolio } from '../utils/helius.js';
 import { getWalletAddress } from '../utils/wallet.js';
-import { getPositionStats, getOpenPositions } from '../utils/positions.js';
+import { getPositionStats } from '../utils/positions.js';
+import { getPositions, microToUsd } from '../utils/prediction.js';
 import { output, action, requirePassword } from './shared.js';
 
 export const portfolioCommand = new Command('portfolio')
@@ -14,20 +16,45 @@ export const portfolioCommand = new Command('portfolio')
     const onChain = await getPortfolio(address);
     const holdings = onChain.tokens.filter(t => t.valueUsd >= 0.01);
 
-    // Local position journal
-    const stats = getPositionStats();
-    const openPositions = getOpenPositions();
-    const predictions = openPositions.filter(p => p.type === 'prediction');
-    const tokenPositions = openPositions.filter(p => p.type !== 'prediction');
+    // Live prediction positions from API
+    let predPositions: any[] = [];
+    let predTotalCost = Big(0);
+    let predTotalValue = Big(0);
+    let predTotalPnl = Big(0);
+    try {
+      const result = await getPositions(address);
+      predPositions = result.positions || [];
+      for (const p of predPositions) {
+        predTotalCost = predTotalCost.plus(microToUsd(p.totalCostUsd));
+        predTotalValue = predTotalValue.plus(microToUsd(p.valueUsd));
+        predTotalPnl = predTotalPnl.plus(microToUsd(p.pnlUsdAfterFees));
+      }
+    } catch {
+      // Prediction API unavailable — show what we have
+    }
 
-    const totalPnl = stats.realizedPnl + stats.unrealizedPnl;
+    // Local journal stats (realized PnL from closed trades)
+    const stats = getPositionStats();
+    const totalPnl = stats.realizedPnl + predTotalPnl.toNumber();
 
     output(
       {
         address,
         onChain: { totalUsd: onChain.totalValueUsd, holdings },
-        positions: { open: openPositions.length, predictions: predictions.length, tokens: tokenPositions.length },
-        stats: { realizedPnl: stats.realizedPnl, unrealizedPnl: stats.unrealizedPnl, totalPnl, winRate: stats.winRate },
+        predictions: {
+          count: predPositions.length,
+          costUsd: predTotalCost.toNumber(),
+          valueUsd: predTotalValue.toNumber(),
+          pnlUsd: predTotalPnl.toNumber(),
+        },
+        pnl: {
+          realized: stats.realizedPnl,
+          unrealized: predTotalPnl.toNumber(),
+          total: totalPnl,
+          winRate: stats.winRate,
+          winCount: stats.winCount,
+          lossCount: stats.lossCount,
+        },
       },
       () => {
         const lines: string[] = [];
@@ -42,23 +69,29 @@ export const portfolioCommand = new Command('portfolio')
         }
         lines.push('');
 
-        // Prediction positions
-        if (predictions.length > 0) {
-          const predValue = predictions.reduce((s, p) => s + p.entryValueUsd, 0);
-          lines.push(`Prediction Bets: ${predictions.length} open ($${predValue.toFixed(2)} deployed)`);
-          for (const p of predictions) {
-            lines.push(`  ${p.tokenSymbol.slice(0, 35).padEnd(37)} $${p.entryValueUsd.toFixed(2)}`);
+        // Prediction positions with PnL
+        if (predPositions.length > 0) {
+          lines.push(`Prediction Bets: ${predPositions.length} open (cost $${predTotalCost.toFixed(2)}, value $${predTotalValue.toFixed(2)})`);
+          for (const p of predPositions) {
+            const side = p.isYes ? 'YES' : 'NO';
+            const pnl = microToUsd(p.pnlUsdAfterFees);
+            const pnlPct = p.pnlUsdAfterFeesPercent ?? 0;
+            const pnlStr = `${pnl.gte(0) ? '+' : ''}$${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(0)}%)`;
+            const claimable = p.claimable ? ' [CLAIM]' : '';
+            const title = (p.marketMetadata?.title || p.marketId).slice(0, 28);
+            lines.push(`  ${side} ${title.padEnd(30)} ${pnlStr}${claimable}`);
           }
           lines.push('');
         }
 
         // PnL summary
+        const predPnl = predTotalPnl.toNumber();
         lines.push(`PnL Summary`);
-        lines.push(`  Realized:   ${stats.realizedPnl >= 0 ? '+' : ''}$${stats.realizedPnl.toFixed(2)}`);
-        lines.push(`  Unrealized: ${stats.unrealizedPnl >= 0 ? '+' : ''}$${stats.unrealizedPnl.toFixed(2)}`);
-        lines.push(`  Total:      ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`);
+        lines.push(`  Predictions: ${predPnl >= 0 ? '+' : ''}$${predPnl.toFixed(2)} (unrealized)`);
+        lines.push(`  Realized:    ${stats.realizedPnl >= 0 ? '+' : ''}$${stats.realizedPnl.toFixed(2)} (closed trades)`);
+        lines.push(`  Total:       ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`);
         if (stats.closedPositions > 0) {
-          lines.push(`  Win Rate:   ${stats.winRate.toFixed(0)}% (${stats.winCount}W/${stats.lossCount}L)`);
+          lines.push(`  Win Rate:    ${stats.winRate.toFixed(0)}% (${stats.winCount}W/${stats.lossCount}L)`);
         }
 
         return lines.join('\n');
