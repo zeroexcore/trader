@@ -2,7 +2,6 @@
 import { Connection } from '@solana/web3.js';
 import { Command } from 'commander';
 import dotenv from 'dotenv';
-import * as asciichart from 'asciichart';
 import fs from 'fs';
 import path from 'path';
 import { getTokenDecimals, toSmallestUnit, fromSmallestUnit } from './utils/amounts.js';
@@ -75,7 +74,30 @@ const program = new Command();
 program
   .name('trader')
   .description('Solana trading CLI - Trade tokens, track portfolio, bet on prediction markets')
-  .version('1.0.0');
+  .version('1.0.0')
+  .option('--md', 'Output as markdown (default is JSON)');
+
+// Output helper - JSON by default, markdown with --md
+function output(data: any, mdFormatter?: () => string): void {
+  const opts = program.opts();
+  if (opts.md && mdFormatter) {
+    console.log(mdFormatter());
+  } else {
+    console.log(JSON.stringify(data, null, 2));
+  }
+}
+
+// Error output
+function error(message: string, details?: any): void {
+  const opts = program.opts();
+  if (opts.md) {
+    console.error(`Error: ${message}`);
+    if (details) console.error(details);
+  } else {
+    console.log(JSON.stringify({ error: message, details }, null, 2));
+  }
+  process.exit(1);
+}
 
 // Helper to get RPC URL (defaults to Helius if HELIUS_API_KEY is set)
 function getRpcUrl(): string {
@@ -90,8 +112,8 @@ function getRpcUrl(): string {
 function getPassword(): string {
   const password = process.env.WALLET_PASSWORD;
   if (!password) {
-    console.error('❌ WALLET_PASSWORD environment variable required');
-    process.exit(1);
+    error('WALLET_PASSWORD environment variable required');
+    process.exit(1); // TypeScript needs this for control flow
   }
   return password;
 }
@@ -104,19 +126,15 @@ wallet
   .description('Generate a new encrypted wallet (ONE TIME ONLY)')
   .action(async () => {
     const password = getPassword();
-
     try {
       const publicKey = generateWallet(password);
-      console.log('\n✅ Wallet generated successfully');
-      console.log('📍 Address:', publicKey.toBase58());
-      console.log('\n⚠️  IMPORTANT SECURITY NOTES:');
-      console.log('   • Store your password securely - it cannot be recovered');
-      console.log('   • Never share your password or private key');
-      console.log('   • Run "trader wallet export" ON THE SERVER to backup your private key');
-      console.log('   • Agent should ONLY use public address for operations');
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
+      const address = publicKey.toBase58();
+      output(
+        { success: true, address, warning: 'Backup private key with: trader wallet export (run on server only)' },
+        () => `Wallet generated: ${address}\n\nIMPORTANT: Run \`trader wallet export\` on server to backup private key.`
+      );
+    } catch (e: any) {
+      error(e.message);
     }
   });
 
@@ -125,13 +143,11 @@ wallet
   .description('Get wallet address (safe to share)')
   .action(async () => {
     const password = getPassword();
-
     try {
       const address = getWalletAddress(password);
-      console.log(address);
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
+      output({ address }, () => address);
+    } catch (e: any) {
+      error(e.message);
     }
   });
 
@@ -140,21 +156,14 @@ wallet
   .description('Export private key for backup (KEEP SECRET!)')
   .action(async () => {
     const password = getPassword();
-
     try {
       const privateKey = await exportPrivateKey(password);
-      console.log('\n⚠️  WARNING: PRIVATE KEY - NEVER SHARE THIS!\n');
-      console.log('📋 Private Key (base58):');
-      console.log(privateKey);
-      console.log('\n📝 To import into Phantom/Solflare:');
-      console.log('   1. Open wallet app');
-      console.log('   2. Add/Import Wallet');
-      console.log('   3. Import Private Key');
-      console.log('   4. Paste the key above');
-      console.log('\n🔒 Store this securely offline. Delete from terminal history.\n');
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
+      output(
+        { privateKey, warning: 'NEVER SHARE - import into Phantom/Solflare for recovery' },
+        () => `Private Key (base58):\n${privateKey}\n\nImport into Phantom/Solflare for recovery.`
+      );
+    } catch (e: any) {
+      error(e.message);
     }
   });
 
@@ -163,78 +172,29 @@ const portfolio = program
   .command('portfolio')
   .description('View portfolio balances and values');
 
-// Generate sparkline from price array
-function sparkline(prices: number[]): string {
-  if (prices.length === 0) return '';
-  const blocks = '▁▂▃▄▅▆▇█';
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const range = max - min || 1;
-  return prices.map(p => {
-    const idx = Math.floor(((p - min) / range) * (blocks.length - 1));
-    return blocks[idx];
-  }).join('');
-}
-
-// Generate simulated price history (random walk from current price)
-function generatePriceHistory(currentPrice: number, points: number = 20, volatility: number = 0.015): number[] {
-  const prices: number[] = [currentPrice];
-  for (let i = 1; i < points; i++) {
-    const change = (Math.random() - 0.5) * volatility;
-    prices.unshift(prices[0] * (1 + change));
-  }
-  return prices;
-}
-
 portfolio
   .command('view')
   .description('View all token holdings with USD values')
-  .option('-c, --charts', 'Show sparkline charts', false)
-  .action(async (options) => {
+  .action(async () => {
     const password = getPassword();
+    const address = getWalletAddress(password);
 
     try {
-      const address = getWalletAddress(password);
-      console.log('📊 Fetching portfolio for:', address, '\n');
-
       const data = await getPortfolio(address);
-
-      console.log('💰 Total Portfolio Value: $' + data.totalValueUsd.toFixed(2));
-      console.log('\n📈 Holdings:\n');
-
-      if (options.charts) {
-        // Table with sparklines
-        const rows = data.tokens
-          .filter(t => t.valueUsd >= 0.01)
-          .map((t) => {
-            const prices = generatePriceHistory(t.pricePerToken);
-            const chart = sparkline(prices);
-            const change = ((prices[prices.length - 1] - prices[0]) / prices[0] * 100);
-            const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`;
-            return {
-              Symbol: t.symbol,
-              Balance: t.balance.toFixed(4),
-              Price: '$' + t.pricePerToken.toFixed(2),
-              '7d': chart,
-              Chg: changeStr,
-              Value: '$' + t.valueUsd.toFixed(2),
-            };
-          });
-        console.table(rows);
-      } else {
-        console.table(
-          data.tokens.map((t) => ({
-            Symbol: t.symbol,
-            Name: t.name,
-            Balance: t.balance.toFixed(4),
-            'Price (USD)': '$' + t.pricePerToken.toFixed(2),
-            'Value (USD)': '$' + t.valueUsd.toFixed(2),
-          }))
-        );
-      }
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
+      const holdings = data.tokens.filter(t => t.valueUsd >= 0.01);
+      
+      output(
+        { address, totalUsd: data.totalValueUsd, holdings },
+        () => {
+          let md = `# Portfolio\nAddress: ${address}\nTotal: $${data.totalValueUsd.toFixed(2)}\n\n`;
+          for (const t of holdings) {
+            md += `- ${t.symbol}: ${t.balance.toFixed(4)} @ $${t.pricePerToken.toFixed(2)} = $${t.valueUsd.toFixed(2)}\n`;
+          }
+          return md;
+        }
+      );
+    } catch (e: any) {
+      error(e.message);
     }
   });
 
@@ -247,311 +207,15 @@ portfolio
 
     try {
       const address = getWalletAddress(password);
-      console.log('📊 Calculating PnL for:', mint, '\n');
-
       const pnl = await calculatePnL(address, mint);
 
-      console.log('Position Summary:');
-      console.log('  Bought:', pnl.totalBought);
-      console.log('  Sold:', pnl.totalSold);
-      console.log('  Current Holdings:', pnl.currentHolding);
-
-      if (pnl.avgPurchasePrice && pnl.currentPrice) {
-        console.log('\nPrice Analysis:');
-        console.log('  Average Purchase Price: $' + pnl.avgPurchasePrice.toFixed(2));
-        console.log('  Current Price: $' + pnl.currentPrice.toFixed(2));
-        const emoji = pnl.priceChange >= 0 ? '📈' : '📉';
-        console.log(`  Price Change: ${emoji} ${pnl.priceChange.toFixed(2)}%`);
-      }
-
-      console.log('\nFinancials:');
-      console.log('  Cost Basis: $' + pnl.costBasis.toFixed(2));
-      console.log('  Current Value: $' + pnl.currentValue.toFixed(2));
-      console.log('  Realized PnL: $' + pnl.realizedPnL.toFixed(2));
-      console.log('  Unrealized PnL: $' + pnl.unrealizedPnL.toFixed(2));
-      const pnlEmoji = pnl.totalPnL >= 0 ? '💰' : '💸';
-      console.log(`  Total PnL: ${pnlEmoji} $${pnl.totalPnL.toFixed(2)}`);
+      console.log(`PnL for ${mintOrTicker.toUpperCase()}`);
+      console.log(`Bought: ${pnl.totalBought} | Sold: ${pnl.totalSold} | Holding: ${pnl.currentHolding}`);
+      console.log(`Avg buy: $${pnl.avgPurchasePrice.toFixed(2)} | Current: $${pnl.currentPrice.toFixed(2)} (${pnl.priceChange >= 0 ? '+' : ''}${pnl.priceChange.toFixed(2)}%)`);
+      console.log(`Cost basis: $${pnl.costBasis.toFixed(2)} | Value: $${pnl.currentValue.toFixed(2)}`);
+      console.log(`Realized: $${pnl.realizedPnL.toFixed(2)} | Unrealized: $${pnl.unrealizedPnL.toFixed(2)} | Total: $${pnl.totalPnL.toFixed(2)}`);
     } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-portfolio
-  .command('watch')
-  .description('Watch portfolio with live price updates')
-  .option('-i, --interval <seconds>', 'Refresh interval in seconds', '30')
-  .action(async (options) => {
-    const password = getPassword();
-    const interval = parseInt(options.interval) * 1000;
-    const address = getWalletAddress(password);
-    
-    // Store initial prices for comparison
-    let initialPrices: Record<string, number> = {};
-    let firstRun = true;
-    
-    console.log(`👁️  Watching portfolio (refresh every ${options.interval}s)...`);
-    console.log(`   Press Ctrl+C to stop\n`);
-    
-    const fetchAndDisplay = async () => {
-      try {
-        const data = await getPortfolio(address);
-        
-        // Clear screen
-        console.clear();
-        console.log(`👁️  Portfolio Monitor - ${new Date().toLocaleTimeString()}`);
-        console.log(`═══════════════════════════════════════════════════════════════\n`);
-        
-        // Table header
-        console.log(`${'Asset'.padEnd(10)} ${'Balance'.padStart(12)} ${'Price'.padStart(12)} ${'Change'.padStart(10)} ${'Value'.padStart(12)}`);
-        console.log(`${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(12)} ${'─'.repeat(10)} ${'─'.repeat(12)}`);
-        
-        for (const t of data.tokens) {
-          if (t.valueUsd < 0.01) continue; // Skip dust
-          
-          // Store initial price on first run
-          if (firstRun) {
-            initialPrices[t.symbol] = t.pricePerToken;
-          }
-          
-          // Calculate change from initial
-          const initialPrice = initialPrices[t.symbol] || t.pricePerToken;
-          const priceChange = initialPrice > 0 ? ((t.pricePerToken - initialPrice) / initialPrice) * 100 : 0;
-          const changeStr = priceChange === 0 ? '-' : `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}%`;
-          const changeColor = priceChange > 0 ? '📈' : priceChange < 0 ? '📉' : '  ';
-          
-          console.log(`${t.symbol.padEnd(10)} ${t.balance.toFixed(4).padStart(12)} ${('$' + t.pricePerToken.toFixed(2)).padStart(12)} ${(changeColor + changeStr).padStart(10)} ${('$' + t.valueUsd.toFixed(2)).padStart(12)}`);
-        }
-        
-        console.log(`${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(12)} ${'─'.repeat(10)} ${'─'.repeat(12)}`);
-        console.log(`${'TOTAL'.padEnd(10)} ${''.padStart(12)} ${''.padStart(12)} ${''.padStart(10)} ${('$' + data.totalValueUsd.toFixed(2)).padStart(12)}`);
-        
-        firstRun = false;
-      } catch (error: any) {
-        console.error('❌ Error:', error.message);
-      }
-    };
-    
-    // Initial fetch
-    await fetchAndDisplay();
-    
-    // Set up interval
-    setInterval(fetchAndDisplay, interval);
-  });
-
-portfolio
-  .command('chart <token>')
-  .description('Show price chart with B/S markers from trade history')
-  .option('-d, --days <days>', 'Number of days of history', '7')
-  .action(async (tokenOrTicker, options) => {
-    const password = getPassword();
-    const mint = resolveToken(tokenOrTicker);
-    const address = getWalletAddress(password);
-    
-    try {
-      // Get positions for this token
-      const allPositions = getAllPositions();
-      const tokenPositions = allPositions.filter((p: any) => p.mint === mint || p.symbol?.toUpperCase() === tokenOrTicker.toUpperCase());
-      
-      // Get current price via Helius DAS API
-      const heliusApiKey = process.env.HELIUS_API_KEY;
-      if (!heliusApiKey) {
-        console.error('❌ HELIUS_API_KEY not set');
-        process.exit(1);
-      }
-      
-      const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
-      const priceResponse = await fetch(heliusUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'price',
-          method: 'getAsset',
-          params: { id: mint },
-        }),
-      });
-      const priceData = await priceResponse.json() as any;
-      const currentPrice = priceData?.result?.token_info?.price_info?.price_per_token || 0;
-      
-      if (!currentPrice) {
-        console.error('❌ Could not fetch price for token');
-        process.exit(1);
-      }
-      
-      // Generate mock price history (since we don't have Birdeye API)
-      // In production, this would fetch real OHLCV data
-      const days = parseInt(options.days);
-      const numPoints = Math.min(days * 24, 60); // hourly for up to 60 points
-      const volatility = 0.02; // 2% volatility
-      
-      // Work backwards from current price with random walk
-      const prices: number[] = [currentPrice];
-      for (let i = 1; i < numPoints; i++) {
-        const change = (Math.random() - 0.5) * volatility;
-        prices.unshift(prices[0] * (1 + change));
-      }
-      
-      // Find B/S markers
-      const markers: { index: number; type: 'B' | 'S'; price: number }[] = [];
-      
-      for (const pos of tokenPositions as any[]) {
-        if (pos.entryTime) {
-          const entryDate = new Date(pos.entryTime);
-          const now = new Date();
-          const hoursAgo = Math.floor((now.getTime() - entryDate.getTime()) / (1000 * 60 * 60));
-          const index = Math.max(0, numPoints - hoursAgo - 1);
-          if (index >= 0 && index < numPoints) {
-            markers.push({ index, type: 'B', price: pos.entryPrice || prices[index] });
-          }
-        }
-        if (pos.exitTime) {
-          const exitDate = new Date(pos.exitTime);
-          const now = new Date();
-          const hoursAgo = Math.floor((now.getTime() - exitDate.getTime()) / (1000 * 60 * 60));
-          const index = Math.max(0, numPoints - hoursAgo - 1);
-          if (index >= 0 && index < numPoints) {
-            markers.push({ index, type: 'S', price: pos.exitPrice || prices[index] });
-          }
-        }
-      }
-      
-      // Print chart
-      console.log(`\n📈 ${tokenOrTicker.toUpperCase()} Price Chart (${days} days)\n`);
-      
-      const config = {
-        height: 15,
-        colors: [asciichart.green],
-        format: (x: number) => ('$' + x.toFixed(2)).padStart(10),
-      };
-      
-      console.log(asciichart.plot(prices, config));
-      
-      // Print legend with markers
-      console.log('\n');
-      const timeLabels = `${days}d ago`.padStart(10) + ''.padStart(Math.floor(numPoints / 2) - 5) + 'Now'.padStart(numPoints - Math.floor(numPoints / 2));
-      console.log(timeLabels);
-      
-      // Show trades
-      if (tokenPositions.length > 0) {
-        console.log('\n📊 Trade History:');
-        for (const pos of tokenPositions as any[]) {
-          const status = pos.status === 'open' ? '🟢 OPEN' : '⚪ CLOSED';
-          const side = pos.type === 'long' ? 'LONG' : 'SHORT';
-          const amount = pos.entryAmount || pos.amount || 0;
-          const entryPrice = pos.entryPrice || 0;
-          const entryDate = pos.entryDate ? new Date(pos.entryDate).toLocaleDateString() : '';
-          
-          console.log(`   ${status} ${side}: ${amount.toFixed(4)} @ $${entryPrice.toFixed(2)} (${entryDate}) [B]`);
-          
-          if (pos.exitPrice) {
-            const pnl = pos.pnl || ((pos.exitPrice - entryPrice) * amount);
-            const exitDate = pos.exitDate ? new Date(pos.exitDate).toLocaleDateString() : '';
-            const pnlEmoji = pnl >= 0 ? '💰' : '💸';
-            console.log(`   └─ ${pnlEmoji} Exit: $${pos.exitPrice.toFixed(2)} (${exitDate}) | PnL: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)} [S]`);
-          }
-        }
-        
-        // Calculate total PnL for this token
-        const totalPnl = tokenPositions.reduce((sum, pos) => sum + (pos.pnl || 0), 0);
-        if (totalPnl !== 0) {
-          const totalEmoji = totalPnl >= 0 ? '💰' : '💸';
-          console.log(`\n   ${totalEmoji} Total PnL for ${tokenOrTicker.toUpperCase()}: ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`);
-        }
-      }
-      
-      // Current price
-      console.log(`\n💰 Current Price: $${currentPrice.toFixed(2)}`);
-      
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
-      process.exit(1);
-    }
-  });
-
-portfolio
-  .command('charts')
-  .description('Show all holdings on one chart (normalized % change)')
-  .option('-d, --days <days>', 'Number of days of history', '7')
-  .action(async (options) => {
-    const password = getPassword();
-    try {
-      const address = getWalletAddress(password);
-      const data = await getPortfolio(address);
-      
-      // Filter to significant holdings (>$1)
-      const holdings = data.tokens.filter(t => t.valueUsd >= 1);
-      
-      if (holdings.length === 0) {
-        console.log('No significant holdings to chart');
-        process.exit(0);
-      }
-      
-      const days = parseInt(options.days);
-      const numPoints = Math.min(days * 24, 50);
-      
-      // Generate normalized price series for each holding (% change from start)
-      const seriesData: { symbol: string; values: number[]; change: number; value: number }[] = [];
-      
-      for (const t of holdings.slice(0, 6)) {
-        const volatility = t.symbol === 'SOL' ? 0.025 : t.symbol === 'WBTC' ? 0.02 : t.symbol === 'GLDx' ? 0.008 : 0.015;
-        
-        // Generate price history
-        const prices: number[] = [t.pricePerToken];
-        for (let j = 1; j < numPoints; j++) {
-          const change = (Math.random() - 0.5) * volatility;
-          prices.unshift(prices[0] * (1 + change));
-        }
-        
-        // Normalize to % change from start
-        const startPrice = prices[0];
-        const normalized = prices.map(p => ((p - startPrice) / startPrice) * 100);
-        const change = normalized[normalized.length - 1];
-        
-        seriesData.push({ symbol: t.symbol, values: normalized, change, value: t.valueUsd });
-      }
-      
-      // Brand colors for each asset
-      const brandColors: Record<string, string> = {
-        'GLDx': asciichart.yellow,      // Gold
-        'WBTC': '\x1b[38;5;208m',        // Orange (BTC)
-        'SOL': asciichart.magenta,       // Purple (Solana)
-        'USDC': asciichart.blue,         // Blue (USD Coin)
-        'JupUSD': asciichart.cyan,       // Cyan (Jupiter USD)
-        'JUP': asciichart.lightgreen,    // Light green (Jupiter)
-        'RAY': asciichart.lightcyan,     // Light cyan (Raydium)
-        'ETH': '\x1b[38;5;63m',          // Indigo (Ethereum)
-      };
-      const defaultColor = asciichart.white;
-      
-      const series = seriesData.map(s => s.values);
-      const colors = seriesData.map(s => brandColors[s.symbol] || defaultColor);
-      
-      console.log(`\n📈 Portfolio Chart - ${days} Day Performance (% Change)\n`);
-      
-      const config = {
-        height: 15,
-        colors,
-        format: (x: number) => (x >= 0 ? '+' : '') + x.toFixed(1) + '%',
-      };
-      
-      console.log(asciichart.plot(series, config));
-      
-      // Legend with brand colors
-      console.log('\n   Legend:');
-      const reset = '\x1b[0m';
-      
-      for (const s of seriesData) {
-        const color = brandColors[s.symbol] || defaultColor;
-        const changeStr = (s.change >= 0 ? '+' : '') + s.change.toFixed(1) + '%';
-        const changeColor = s.change >= 0 ? '\x1b[32m' : '\x1b[31m'; // green/red for +/-
-        console.log(`   ${color}●${reset} ${s.symbol.padEnd(6)} $${s.value.toFixed(0).padStart(5)}  ${changeColor}${changeStr}${reset}`);
-      }
-      
-      console.log(`\n   Total: $${data.totalValueUsd.toFixed(2)}`);
-      
-    } catch (error: any) {
-      console.error('❌ Error:', error.message);
+      console.error('Error:', error.message);
       process.exit(1);
     }
   });
@@ -872,71 +536,23 @@ positions
   .description('Show position statistics and performance')
   .action(() => {
     const stats = getPositionStats();
-    
-    console.log('\n╔═══════════════════════════════════════════════════════════════╗');
-    console.log('║                     POSITION STATISTICS                        ║');
-    console.log('╚═══════════════════════════════════════════════════════════════╝\n');
-    
-    // Overview
-    console.log('📊 OVERVIEW');
-    console.log(`   Total Positions: ${stats.totalPositions}`);
-    console.log(`   Open: ${stats.openPositions} | Closed: ${stats.closedPositions}`);
-    console.log('');
-    
-    // Financial
-    console.log('💰 FINANCIALS');
-    console.log(`   Open Position Value: $${stats.currentOpenValue.toFixed(2)}`);
-    const unrealizedEmoji = stats.unrealizedPnl >= 0 ? '📈' : '📉';
-    console.log(`   Unrealized PnL: ${unrealizedEmoji} ${stats.unrealizedPnl >= 0 ? '+' : ''}$${stats.unrealizedPnl.toFixed(2)}`);
-    const realizedEmoji = stats.realizedPnl >= 0 ? '💰' : '💸';
-    console.log(`   Realized PnL: ${realizedEmoji} ${stats.realizedPnl >= 0 ? '+' : ''}$${stats.realizedPnl.toFixed(2)}`);
     const totalPnl = stats.realizedPnl + stats.unrealizedPnl;
-    const totalEmoji = totalPnl >= 0 ? '🏆' : '📉';
-    console.log(`   Total PnL: ${totalEmoji} ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`);
-    console.log('');
     
-    // Win/Loss
-    if (stats.closedPositions > 0) {
-      console.log('🎯 PERFORMANCE');
-      console.log(`   Win Rate: ${stats.winRate.toFixed(1)}% (${stats.winCount}W / ${stats.lossCount}L)`);
-      console.log(`   Avg Win: +$${stats.avgWin.toFixed(2)}`);
-      console.log(`   Avg Loss: $${stats.avgLoss.toFixed(2)}`);
-      if (stats.avgHoldTime > 0) {
-        const holdStr = stats.avgHoldTime >= 24 
-          ? `${(stats.avgHoldTime / 24).toFixed(1)} days`
-          : `${stats.avgHoldTime.toFixed(1)} hours`;
-        console.log(`   Avg Hold Time: ${holdStr}`);
+    output(stats, () => {
+      let md = `# Position Stats\n`;
+      md += `Total: ${stats.totalPositions} (${stats.openPositions} open, ${stats.closedPositions} closed)\n`;
+      md += `Open value: $${stats.currentOpenValue.toFixed(2)}\n`;
+      md += `Unrealized PnL: $${stats.unrealizedPnl.toFixed(2)}\n`;
+      md += `Realized PnL: $${stats.realizedPnl.toFixed(2)}\n`;
+      md += `Total PnL: $${totalPnl.toFixed(2)}\n`;
+      if (stats.closedPositions > 0) {
+        md += `\nWin rate: ${stats.winRate.toFixed(1)}% (${stats.winCount}W/${stats.lossCount}L)\n`;
+        md += `Avg win: $${stats.avgWin.toFixed(2)} | Avg loss: $${stats.avgLoss.toFixed(2)}\n`;
+        if (stats.bestTrade) md += `Best: ${stats.bestTrade.symbol} +$${stats.bestTrade.pnl.toFixed(2)}\n`;
+        if (stats.worstTrade) md += `Worst: ${stats.worstTrade.symbol} $${stats.worstTrade.pnl.toFixed(2)}\n`;
       }
-      console.log('');
-      
-      // Best/Worst
-      if (stats.bestTrade) {
-        console.log('🏆 BEST TRADE');
-        console.log(`   ${stats.bestTrade.symbol}: +$${stats.bestTrade.pnl.toFixed(2)} (+${stats.bestTrade.pnlPercent.toFixed(1)}%)`);
-      }
-      if (stats.worstTrade) {
-        console.log('📉 WORST TRADE');
-        console.log(`   ${stats.worstTrade.symbol}: $${stats.worstTrade.pnl.toFixed(2)} (${stats.worstTrade.pnlPercent.toFixed(1)}%)`);
-      }
-      console.log('');
-      
-      // By Type
-      console.log('📈 BY TYPE');
-      if (stats.byType.long.count > 0) {
-        const longEmoji = stats.byType.long.pnl >= 0 ? '💰' : '💸';
-        console.log(`   Long: ${stats.byType.long.count} trades | ${longEmoji} ${stats.byType.long.pnl >= 0 ? '+' : ''}$${stats.byType.long.pnl.toFixed(2)}`);
-      }
-      if (stats.byType.short.count > 0) {
-        const shortEmoji = stats.byType.short.pnl >= 0 ? '💰' : '💸';
-        console.log(`   Short: ${stats.byType.short.count} trades | ${shortEmoji} ${stats.byType.short.pnl >= 0 ? '+' : ''}$${stats.byType.short.pnl.toFixed(2)}`);
-      }
-      if (stats.byType.prediction.count > 0) {
-        const predEmoji = stats.byType.prediction.pnl >= 0 ? '💰' : '💸';
-        console.log(`   Predictions: ${stats.byType.prediction.count} bets | ${predEmoji} ${stats.byType.prediction.pnl >= 0 ? '+' : ''}$${stats.byType.prediction.pnl.toFixed(2)}`);
-      }
-    }
-    
-    console.log('');
+      return md;
+    });
   });
 
 positions
@@ -1255,27 +871,19 @@ predict
   .command('watch')
   .description('Watch positions with live odds and PnL updates')
   .option('-i, --interval <seconds>', 'Refresh interval in seconds', '30')
-  .option('-c, --chart', 'Show ASCII chart of odds history', false)
   .action(async (options) => {
     const password = getPassword();
     const interval = parseInt(options.interval) * 1000;
     const address = getWalletAddress(password);
     
-    // Track odds history in memory
-    const oddsHistory: Record<string, number[]> = {};
-    const maxHistory = 60;
-    
-    console.log(`👁️  Watching positions (refresh every ${options.interval}s)...`);
-    console.log(`   Press Ctrl+C to stop\n`);
+    console.log(`Watching positions (refresh every ${options.interval}s). Ctrl+C to stop.\n`);
     
     const fetchAndDisplay = async () => {
       try {
         const result = await getPositions(address);
         
-        // Clear screen
         console.clear();
-        console.log(`👁️  Position Monitor - ${new Date().toLocaleTimeString()}`);
-        console.log(`═══════════════════════════════════════════════════════════════\n`);
+        console.log(`Positions - ${new Date().toLocaleTimeString()}\n`);
         
         if (!result.positions || result.positions.length === 0) {
           console.log('No open positions');
@@ -1286,11 +894,8 @@ predict
         let totalPnl = Big(0);
         let totalCost = Big(0);
         
-        // Collect data first
-        const posData: { title: string; odds: number | null; entry: number; pnl: Big; payout: Big; status: string; key: string }[] = [];
-        
         for (const pos of result.positions) {
-          const title = pos.marketMetadata.title.substring(0, 18);
+          const title = pos.marketMetadata.title.substring(0, 25);
           const cost = microToUsd(pos.totalCostUsd);
           const avgPrice = microToUsd(pos.avgPriceUsd);
           const value = microToUsd(pos.valueUsd);
@@ -1300,97 +905,42 @@ predict
           const marketStatus = pos.marketMetadata?.status || 'open';
           const marketResult = pos.marketMetadata?.result;
           
-          const currentOddsNum = sellPrice ? sellPrice.toNumber() * 100 : 0;
+          const currentOdds = sellPrice ? sellPrice.toNumber() * 100 : 0;
+          const entryOdds = avgPrice.toNumber() * 100;
           
-          // Track odds history
-          const key = pos.marketId;
-          if (!oddsHistory[key]) oddsHistory[key] = [];
-          if (currentOddsNum > 0) {
-            oddsHistory[key].push(currentOddsNum);
-            if (oddsHistory[key].length > maxHistory) oddsHistory[key].shift();
-          }
-          
-          let status = '';
-          let displayOdds: number | null = currentOddsNum;
-          
+          let status = 'OPEN';
           if (marketStatus === 'closed') {
             if (marketResult) {
               const won = (marketResult === 'yes' && pos.isYes) || (marketResult === 'no' && !pos.isYes);
-              status = won ? '✅' : '❌';
-              // Show 100% or 0% based on win/loss for clarity
-              displayOdds = won ? 100 : 0;
+              status = won ? 'WON' : 'LOST';
             } else {
-              // Market closed but no result yet (pending settlement)
-              // Likely a win if currentOdds was high, show as pending win
-              status = '⏳';
-              displayOdds = null; // Will show as "—"
+              status = 'PENDING';
             }
           }
-          if (pos.claimable) status = '🎉';
+          if (pos.claimable) status = 'CLAIM';
           
-          posData.push({
-            title,
-            odds: displayOdds,
-            entry: avgPrice.toNumber() * 100,
-            pnl,
-            payout,
-            status,
-            key,
-          });
+          const pnlStr = `${pnl.gte(0) ? '+' : ''}$${pnl.toFixed(2)}`;
+          const oddsStr = currentOdds > 0 ? `${currentOdds.toFixed(0)}%` : '-';
+          
+          console.log(`${title.padEnd(25)} ${status.padEnd(7)} ${oddsStr.padStart(4)}/${entryOdds.toFixed(0)}% ${pnlStr.padStart(8)} payout:$${payout.toFixed(2)}`);
           
           totalValue = totalValue.plus(value);
           totalPnl = totalPnl.plus(pnl);
           totalCost = totalCost.plus(cost);
         }
         
-        // Table
-        console.log(`${'Bet'.padEnd(18)} ${'Odds'.padStart(5)} ${'Entry'.padStart(5)} ${'PnL'.padStart(10)} ${'Payout'.padStart(7)}`);
-        console.log(`${'─'.repeat(18)} ${'─'.repeat(5)} ${'─'.repeat(5)} ${'─'.repeat(10)} ${'─'.repeat(7)}`);
-        
-        for (const p of posData) {
-          const pnlStr = `${p.pnl.gte(0) ? '+' : ''}$${p.pnl.toFixed(2)}`;
-          const oddsStr = p.odds !== null ? `${p.odds.toFixed(0)}%` : '—';
-          console.log(`${(p.title + (p.status ? ' ' + p.status : '')).padEnd(18)} ${oddsStr.padStart(5)} ${(p.entry.toFixed(0) + '%').padStart(5)} ${pnlStr.padStart(10)} ${('$' + p.payout.toFixed(2)).padStart(7)}`);
-        }
-        
-        console.log(`${'─'.repeat(18)} ${'─'.repeat(5)} ${'─'.repeat(5)} ${'─'.repeat(10)} ${'─'.repeat(7)}`);
-        const totalPnlEmoji = totalPnl.gte(0) ? '💰' : '💸';
-        console.log(`${totalPnlEmoji} PnL: ${totalPnl.gte(0) ? '+' : ''}$${totalPnl.toFixed(2)} | Cost: $${totalCost.toFixed(2)} | Value: $${totalValue.toFixed(2)}`);
-        
-        // ASCII Chart
-        const entries = Object.entries(oddsHistory).filter(([_, vals]) => vals.length > 2);
-        if (entries.length > 0) {
-          console.log(`\n📈 Live Odds:\n`);
-          
-          const colors = [asciichart.cyan, asciichart.yellow, asciichart.magenta, asciichart.red, asciichart.green, asciichart.blue];
-          const series = entries.map(([_, vals]) => vals);
-          
-          console.log(asciichart.plot(series, {
-            height: 12,
-            colors: colors.slice(0, series.length),
-            format: (x: number) => x.toFixed(0).padStart(3) + '%',
-          }));
-          
-          // Legend
-          const legend = entries.map(([key, vals], i) => {
-            const pos = posData.find(p => p.key === key);
-            const name = pos?.title?.substring(0, 10) || key.substring(0, 10);
-            const clr = ['\x1b[36m', '\x1b[33m', '\x1b[35m', '\x1b[31m', '\x1b[32m', '\x1b[34m'][i] || '';
-            return `${clr}●\x1b[0m ${name}`;
-          });
-          console.log('\n   ' + legend.join('   '));
-        }
+        console.log(`\nTotal: PnL ${totalPnl.gte(0) ? '+' : ''}$${totalPnl.toFixed(2)} | Cost $${totalCost.toFixed(2)} | Value $${totalValue.toFixed(2)}`);
         
         // Check for claimable
         const claimable = result.positions.filter((p: any) => p.claimable);
         if (claimable.length > 0) {
-          console.log(`\n🎉 ${claimable.length} position(s) ready to claim!`);
+          console.log(`\n${claimable.length} position(s) ready to claim:`);
           for (const pos of claimable) {
-            console.log(`   openclaw-trader predict claim ${pos.pubkey}`);
+            console.log(`  trader predict claim ${pos.pubkey}`);
           }
         }
       } catch (error: any) {
-        console.error('❌ Error:', error.message);
+        console.error('Error:', error.message);
       }
     };
     

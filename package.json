@@ -31,19 +31,16 @@
   "license": "ISC",
   "dependencies": {
     "@coral-xyz/anchor": "0.29.0",
-    "@solana/spl-token": "^0.4.14",
-    "@solana/web3.js": "^1.95.8",
-    "asciichart": "^1.5.25",
-    "big.js": "^7.0.1",
-    "commander": "^12.1.0",
-    "dotenv": "^16.4.7",
-    "helius-sdk": "^1.5.3",
-    "tsx": "^4.19.2"
+    "@solana/spl-token": "0.4.14",
+    "@solana/web3.js": "1.98.4",
+    "big.js": "7.0.1",
+    "commander": "12.1.0",
+    "dotenv": "16.6.1",
+    "tsx": "4.21.0"
   },
   "devDependencies": {
-    "@types/asciichart": "^1.5.8",
-    "@types/big.js": "^6.2.2",
-    "@types/node": "^25.3.2",
-    "typescript": "^5.7.3"
+    "@types/big.js": "6.2.2",
+    "@types/node": "25.3.2",
+    "typescript": "5.9.3"
   }
 }
