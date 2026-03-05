@@ -2,8 +2,19 @@
 
 Solana trading CLI — tokens, prediction markets, perpetuals, NFTs.
 
-## Setup
+## Install
 
+```bash
+npm install -g @zeroexcore/trader
+trader diagnose
+```
+
+Or run without installing:
+```bash
+npx @zeroexcore/trader diagnose
+```
+
+For development:
 ```bash
 git clone https://github.com/zeroexcore/trader
 cd trader

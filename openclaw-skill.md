@@ -46,6 +46,8 @@ Run `trader diagnose` first. Then prompt user:
 
 ```bash
 npm install -g @zeroexcore/trader
+# or run without installing:
+npx @zeroexcore/trader <command>
 ```
 
 ## API Keys (Free)

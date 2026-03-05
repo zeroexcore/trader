@@ -5,9 +5,11 @@ description: Trade Solana tokens, track portfolio, bet on prediction markets via
 
 # openclaw-trader
 
-CLI at `~/code/runcible/trader`. Run with `npm run dev -- <command>`.
-Use `--md` flag for human-readable output: `npm run dev -- --md <command>`.
+Run with `trader <command>` (installed) or `npm run dev -- <command>` (dev).
+Use `--md` flag for human-readable output: `trader --md <command>`.
 JSON output by default (for agent consumption).
+
+Install: `npm install -g @zeroexcore/trader` or `npx @zeroexcore/trader <command>`
 
 ## Security
 
