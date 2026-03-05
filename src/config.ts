@@ -22,6 +22,9 @@ export const env = {
   /** Optional: Override RPC URL */
   rpcUrl: () => process.env.RPC_URL,
   
+  /** Use Helius Sender for ultra-low latency transaction submission */
+  useHeliusSender: () => process.env.USE_HELIUS_SENDER === 'true',
+  
   /** Home directory */
   home: () => process.env.HOME || '',
 };

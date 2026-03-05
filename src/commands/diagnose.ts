@@ -109,12 +109,19 @@ async function checkJupiterApi(): Promise<Check> {
 // Run all checks and aggregate results
 async function runDiagnostics() {
   // Run independent checks in parallel
+  // Run independent checks in parallel
   const [walletPassword, heliusKey, jupiterKey, walletFile] = await Promise.all([
     checkWalletPassword(),
     checkHeliusKey(),
     checkJupiterKey(),
     checkWalletFile(),
   ]);
+
+  const heliusSender = { 
+    name: 'Helius Sender', 
+    status: env.useHeliusSender() ? 'ok' as Status : 'ok' as Status, 
+    message: env.useHeliusSender() ? 'Enabled' : 'Disabled' 
+  };
   
   // Sequential checks that depend on previous results
   const walletDecrypt = await checkWalletDecryption();
@@ -122,7 +129,7 @@ async function runDiagnostics() {
   const solBalance = await checkSolBalance(walletDecrypt.address);
   const jupiterApi = await checkJupiterApi();
   
-  const checks = [walletPassword, heliusKey, jupiterKey, walletFile, walletDecrypt, rpc, solBalance, jupiterApi];
+  const checks = [walletPassword, heliusKey, jupiterKey, walletFile, heliusSender, walletDecrypt, rpc, solBalance, jupiterApi];
   
   const failures = checks.filter(c => c.status === 'fail').length;
   const warnings = checks.filter(c => c.status === 'warn').length;

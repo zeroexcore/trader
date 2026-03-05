@@ -1,6 +1,7 @@
 import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
 import Big from 'big.js';
 import { apis, tokens, requireJupiterKey } from '../config.js';
+import { sendAndConfirmTransaction } from './solana.js';
 
 // Micro USD conversion (6 decimals)
 const MICRO_USD = new Big(1_000_000);
@@ -275,13 +276,8 @@ export async function executeOrder(
   const transaction = VersionedTransaction.deserialize(Buffer.from(txBase64, 'base64'));
   transaction.sign([keypair]);
 
-  // Send to Solana
-  const signature = await connection.sendTransaction(transaction);
-
-  // Wait for confirmation
-  await connection.confirmTransaction(signature, 'confirmed');
-
-  return signature;
+  // Send and confirm using enhanced utility
+  return sendAndConfirmTransaction(connection, transaction);
 }
 
 /**
