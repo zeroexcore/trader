@@ -1,24 +1,22 @@
 import { Command } from 'commander';
-import { apis } from '../../config.js';
+import { browseTokens } from '../../utils/jupiter.js';
 import { output, action } from '../shared.js';
 
 export const browseCommand = new Command('browse')
   .description('Discover trending and popular tokens')
   .option('-l, --limit <number>', 'Number of results', '15')
   .action(action(async (options) => {
-    const res = await fetch(apis.jupiterTokenList);
-    if (!res.ok) throw new Error(`Failed to fetch token list: ${res.status}`);
-
-    const tokens = (await res.json()) as any[];
-    const top = tokens.slice(0, parseInt(options.limit));
+    const tokens = await browseTokens(parseInt(options.limit));
 
     output(
-      { count: top.length, tokens: top.map(t => ({ symbol: t.symbol, name: t.name, address: t.address })) },
+      { count: tokens.length, tokens: tokens.map(t => ({ symbol: t.symbol, name: t.name, mint: t.id, verified: !!t.isVerified, organicScore: t.organicScore })) },
       () => {
-        const lines = top.map(t =>
-          `  ${t.symbol.padEnd(10)} ${(t.name || '').slice(0, 30).padEnd(32)} ${t.address}`
-        );
-        return `Top Tokens (Jupiter Strict List)\n\n${lines.join('\n')}`;
+        if (tokens.length === 0) return 'No tokens found';
+        const lines = tokens.map(t => {
+          const badge = t.isVerified ? ' [verified]' : '';
+          return `  ${(t.symbol || '').padEnd(10)} ${(t.name || '').slice(0, 28).padEnd(30)} ${t.id}${badge}`;
+        });
+        return `Top Tokens (by organic score, 24h)\n\n${lines.join('\n')}`;
       }
     );
   }));

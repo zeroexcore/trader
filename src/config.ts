@@ -60,7 +60,9 @@ export const apis = {
   // Jupiter
   jupiterUltra: 'https://api.jup.ag/ultra/v1',
   jupiterQuote: 'https://quote-api.jup.ag/v6/quote',
-  jupiterTokenList: 'https://token.jup.ag/strict',
+  jupiterTokenSearch: 'https://api.jup.ag/tokens/v2/search',
+  jupiterTokenTag: 'https://api.jup.ag/tokens/v2/tag',
+  jupiterTokenTop: 'https://api.jup.ag/tokens/v2/toporganicscore/24h',
   jupiterPrediction: 'https://api.jup.ag/prediction/v1',
   jupiterPerps: 'https://perps-api.jup.ag/v1',
   

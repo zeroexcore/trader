@@ -111,17 +111,29 @@ export async function executeSwap(
 }
 
 /**
- * Get token list for reference
+ * Search tokens via Jupiter Token API V2
  */
 export async function searchToken(query: string): Promise<any[]> {
-  const response = await fetch(apis.jupiterTokenList);
-  const tokens = await response.json() as any[];
+  const jupiterApiKey = requireJupiterKey();
+  const url = `${apis.jupiterTokenSearch}?query=${encodeURIComponent(query)}`;
+  const response = await fetch(url, {
+    headers: { 'x-api-key': jupiterApiKey },
+  });
+  if (!response.ok) throw new Error(`Token search failed: ${response.status}`);
+  return (await response.json()) as any[];
+}
 
-  const searchLower = query.toLowerCase();
-  return tokens.filter((t: any) =>
-    t.symbol.toLowerCase().includes(searchLower) ||
-    t.name.toLowerCase().includes(searchLower)
-  ).slice(0, 10);
+/**
+ * Browse top tokens by organic score via Jupiter Token API V2
+ */
+export async function browseTokens(limit = 15): Promise<any[]> {
+  const jupiterApiKey = requireJupiterKey();
+  const url = `${apis.jupiterTokenTop}?limit=${limit}`;
+  const response = await fetch(url, {
+    headers: { 'x-api-key': jupiterApiKey },
+  });
+  if (!response.ok) throw new Error(`Token browse failed: ${response.status}`);
+  return (await response.json()) as any[];
 }
 
 // Common token mints for quick reference
