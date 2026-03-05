@@ -2,15 +2,17 @@
 import { Command } from 'commander';
 import dotenv from 'dotenv';
 import { setRootProgram } from './commands/shared.js';
-import { registerWalletCommands } from './commands/wallet.js';
-import { registerPortfolioCommands } from './commands/portfolio.js';
-import { registerTradeCommands } from './commands/trade.js';
-import { registerBookCommands } from './commands/book.js';
-import { registerPositionsCommands } from './commands/positions.js';
-import { registerPredictCommands } from './commands/predict.js';
-import { registerPerpsCommands } from './commands/perps.js';
-import { registerNftCommands } from './commands/nft.js';
-import { registerDiagnoseCommand } from './commands/diagnose.js';
+import { walletCommand } from './commands/wallet.js';
+import { portfolioCommand } from './commands/portfolio.js';
+import { tradeCommand } from './commands/trade/index.js';
+import { searchCommand } from './commands/trade/search.js';
+import { infoCommand } from './commands/trade/info.js';
+import { bookCommand } from './commands/book.js';
+import { positionsCommand } from './commands/positions/index.js';
+import { predictCommand } from './commands/predict/index.js';
+import { perpsCommand } from './commands/perps/index.js';
+import { nftCommand } from './commands/nft/index.js';
+import { diagnoseCommand } from './commands/diagnose.js';
 
 dotenv.config();
 
@@ -26,14 +28,16 @@ program
 setRootProgram(program);
 
 // Register commands
-registerWalletCommands(program);
-registerPortfolioCommands(program);
-registerTradeCommands(program);
-registerBookCommands(program);
-registerPositionsCommands(program);
-registerPredictCommands(program);
-registerPerpsCommands(program);
-registerNftCommands(program);
-registerDiagnoseCommand(program);
+program.addCommand(walletCommand);
+program.addCommand(portfolioCommand);
+program.addCommand(tradeCommand);
+program.addCommand(searchCommand);
+program.addCommand(infoCommand);
+program.addCommand(bookCommand);
+program.addCommand(positionsCommand);
+program.addCommand(predictCommand);
+program.addCommand(perpsCommand);
+program.addCommand(nftCommand);
+program.addCommand(diagnoseCommand);
 
 program.parse(process.argv);

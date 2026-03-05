@@ -133,29 +133,26 @@ async function runDiagnostics() {
   };
 }
 
-export function registerDiagnoseCommand(program: Command): void {
-  program
-    .command('diagnose')
-    .description('Check environment, connectivity, and wallet status')
-    .action(async () => {
-      const result = await runDiagnostics();
-      
-      output(result, () => {
-        const lines = result.checks.map(c => {
-          const tag = c.status === 'ok' ? '[OK]' : c.status === 'warn' ? '[WARN]' : '[FAIL]';
-          return `${tag} ${c.name}: ${c.message}`;
-        });
-        
-        lines.push('');
-        if (result.summary.failures === 0 && result.summary.warnings === 0) {
-          lines.push('All checks passed');
-        } else if (result.summary.failures === 0) {
-          lines.push(`${result.summary.warnings} warning(s)`);
-        } else {
-          lines.push(`${result.summary.failures} failure(s)`);
-        }
-        
-        return lines.join('\n');
+export const diagnoseCommand = new Command('diagnose')
+  .description('Check environment, connectivity, and wallet status')
+  .action(async () => {
+    const result = await runDiagnostics();
+    
+    output(result, () => {
+      const lines = result.checks.map(c => {
+        const tag = c.status === 'ok' ? '[OK]' : c.status === 'warn' ? '[WARN]' : '[FAIL]';
+        return `${tag} ${c.name}: ${c.message}`;
       });
+      
+      lines.push('');
+      if (result.summary.failures === 0 && result.summary.warnings === 0) {
+        lines.push('All checks passed');
+      } else if (result.summary.failures === 0) {
+        lines.push(`${result.summary.warnings} warning(s)`);
+      } else {
+        lines.push(`${result.summary.failures} failure(s)`);
+      }
+      
+      return lines.join('\n');
     });
-}
+  });
