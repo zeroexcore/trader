@@ -1,12 +1,8 @@
 import { AnchorProvider, Program, Wallet, BN } from "@coral-xyz/anchor"
 import { Connection, Keypair, PublicKey } from "@solana/web3.js"
 import Big from "big.js"
-import { createRequire } from "module"
 import { perps as perpsConfig } from "../../config.js"
-
-// Load IDL using createRequire for Node.js compatibility
-const require = createRequire(import.meta.url)
-const IDL = require("./idl.json")
+import IDL from "./idl.json" with { type: "json" }
 
 // Program IDs
 export const JUPITER_PERPETUALS_PROGRAM_ID = new PublicKey(
