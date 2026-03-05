@@ -106,6 +106,15 @@ export const defaultTokenBook: Record<string, string> = {
   RAY: tokens.RAY,
 };
 
+// ============================================================================
+// Safety Limits
+// ============================================================================
+
+export const safety = {
+  /** Minimum SOL to keep in wallet for gas fees. Swaps selling SOL will be rejected if balance would drop below this. */
+  minSolReserve: 0.05,
+};
+
 // Token decimals cache
 export const tokenDecimals: Record<string, number> = {
   [tokens.SOL]: 9,
