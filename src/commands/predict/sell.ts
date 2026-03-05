@@ -11,6 +11,7 @@ export const sellCommand = new Command('sell')
   .argument('<contracts>', 'Number of contracts to sell')
   .description('Sell contracts to close position')
   .option('-l, --limit <price>', 'Minimum sell price (limit order)')
+  .option('-n, --note <note>', 'Trading journal note')
   .action(async (marketId, side, contracts, options) => {
     const password = requirePassword();
 

@@ -1,23 +1,21 @@
 import { Command } from 'commander';
-import { listCommand } from './list.js';
+import { browseCommand } from './browse.js';
 import { searchCommand } from './search.js';
-import { marketCommand } from './market.js';
+import { showCommand } from './show.js';
 import { buyCommand } from './buy.js';
-import { positionsCommand } from './positions.js';
-import { watchCommand } from './watch.js';
 import { sellCommand } from './sell.js';
 import { closeCommand } from './close.js';
 import { claimCommand } from './claim.js';
+import { positionsCommand } from './positions.js';
 
 export const predictCommand = new Command('predict')
-  .description('Jupiter Prediction Markets (Beta)');
+  .description('Prediction markets');
 
-predictCommand.addCommand(listCommand);
+predictCommand.addCommand(browseCommand);
 predictCommand.addCommand(searchCommand);
-predictCommand.addCommand(marketCommand);
+predictCommand.addCommand(showCommand);
 predictCommand.addCommand(buyCommand);
-predictCommand.addCommand(positionsCommand);
-predictCommand.addCommand(watchCommand);
 predictCommand.addCommand(sellCommand);
 predictCommand.addCommand(closeCommand);
 predictCommand.addCommand(claimCommand);
+predictCommand.addCommand(positionsCommand);

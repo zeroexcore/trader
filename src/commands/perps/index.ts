@@ -1,13 +1,11 @@
 import { Command } from 'commander';
-import { poolCommand } from './pool.js';
-import { marketsCommand } from './markets.js';
+import { showCommand } from './show.js';
 import { positionsCommand } from './positions.js';
-import { infoCommand } from './info.js';
+import { poolCommand } from './pool.js';
 
 export const perpsCommand = new Command('perps')
-  .description('Jupiter Perpetuals - leverage trading on SOL/ETH/BTC');
+  .description('Perpetual futures on SOL/ETH/BTC');
 
-perpsCommand.addCommand(poolCommand);
-perpsCommand.addCommand(marketsCommand);
+perpsCommand.addCommand(showCommand);
 perpsCommand.addCommand(positionsCommand);
-perpsCommand.addCommand(infoCommand);
+perpsCommand.addCommand(poolCommand);

@@ -1,6 +1,7 @@
 import { Command } from 'commander';
+import { requirePassword as _requirePassword, getRpcUrl as _getRpcUrl } from '../config.js';
 
-// Get the root program to access global options
+// Root program reference for global options (--md)
 let rootProgram: Command | null = null;
 
 export function setRootProgram(program: Command): void {
@@ -11,20 +12,18 @@ function getOpts(): { md?: boolean } {
   return rootProgram?.opts() ?? {};
 }
 
-// Output helper - JSON by default, markdown with --md
+/** Output helper - JSON by default, markdown with --md */
 export function output(data: any, mdFormatter?: () => string): void {
-  const opts = getOpts();
-  if (opts.md && mdFormatter) {
+  if (getOpts().md && mdFormatter) {
     console.log(mdFormatter());
   } else {
     console.log(JSON.stringify(data, null, 2));
   }
 }
 
-// Error output
+/** Error output and exit */
 export function error(message: string, details?: any): never {
-  const opts = getOpts();
-  if (opts.md) {
+  if (getOpts().md) {
     console.error(`Error: ${message}`);
     if (details) console.error(details);
   } else {
@@ -33,20 +32,23 @@ export function error(message: string, details?: any): never {
   process.exit(1);
 }
 
-// Helper to get wallet password from environment
-export function requirePassword(): string {
-  const password = process.env.WALLET_PASSWORD;
-  if (!password) {
-    error('WALLET_PASSWORD environment variable required');
-  }
-  return password;
+/**
+ * Wrap a commander action so it gets automatic try/catch + structured error output.
+ * Commands no longer need their own try/catch blocks.
+ *
+ * Usage:
+ *   new Command('foo').action(action(async (arg, options) => { ... }))
+ */
+export function action(fn: (...args: any[]) => Promise<void> | void) {
+  return async (...args: any[]) => {
+    try {
+      await fn(...args);
+    } catch (e: any) {
+      error(e.message || 'Unknown error', e.cause || undefined);
+    }
+  };
 }
 
-// Helper to get RPC URL (defaults to Helius if HELIUS_API_KEY is set)
-export function getRpcUrl(): string {
-  if (process.env.RPC_URL) return process.env.RPC_URL;
-  if (process.env.HELIUS_API_KEY) {
-    return `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`;
-  }
-  throw new Error('RPC_URL or HELIUS_API_KEY must be set');
-}
+// Re-export config helpers for backward compat with command files
+export const requirePassword = _requirePassword;
+export const getRpcUrl = _getRpcUrl;

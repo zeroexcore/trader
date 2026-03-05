@@ -1,118 +1,75 @@
 import fs from 'fs';
 import path from 'path';
+import { paths, defaultTokenBook } from '../config.js';
 
-const TOKEN_BOOK_PATH = path.join(process.cwd(), 'tokens.json');
+const LEGACY_TOKEN_BOOK_PATH = path.join(process.cwd(), 'tokens.json');
 
-/**
- * Load token address book
- */
-export function loadTokenBook(): Record<string, string> {
-  try {
-    if (fs.existsSync(TOKEN_BOOK_PATH)) {
-      const content = fs.readFileSync(TOKEN_BOOK_PATH, 'utf-8');
-      return JSON.parse(content);
-    }
-  } catch (error) {
-    console.warn('Failed to load token book:', error);
-  }
-  return {};
-}
-
-/**
- * Save token address book
- */
-export function saveTokenBook(book: Record<string, string>): void {
-  try {
-    fs.writeFileSync(TOKEN_BOOK_PATH, JSON.stringify(book, null, 2), 'utf-8');
-  } catch (error) {
-    console.error('Failed to save token book:', error);
+function ensureDir(): void {
+  const dir = paths.openclawDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { mode: 0o700, recursive: true });
   }
 }
 
-/**
- * Resolve token ticker to address
- * If input is already an address (long string), return as-is
- * If input is a ticker (short string), look up in address book
- */
-export function resolveToken(tickerOrAddress: string): string {
-  // If it looks like an address (long base58 string), return as-is
-  if (tickerOrAddress.length > 32) {
-    return tickerOrAddress;
-  }
-
-  // Otherwise, look up in token book
-  const book = loadTokenBook();
-  const upperTicker = tickerOrAddress.toUpperCase();
+/** Migrate from legacy ./tokens.json to ~/.openclaw/trader-tokens.json */
+function migrateFromLegacy(): void {
+  const target = paths.tokenBook();
+  if (fs.existsSync(target)) return;
   
-  if (book[upperTicker]) {
-    return book[upperTicker];
+  if (fs.existsSync(LEGACY_TOKEN_BOOK_PATH)) {
+    try {
+      ensureDir();
+      const content = fs.readFileSync(LEGACY_TOKEN_BOOK_PATH, 'utf-8');
+      fs.writeFileSync(target, content, { encoding: 'utf-8', mode: 0o600 });
+      console.log(`📦 Migrated token book to ${target}`);
+    } catch {
+      // Fall through to defaults
+    }
   }
-
-  // If not found, return original (might be a short address or will error later)
-  return tickerOrAddress;
 }
 
-/**
- * Get ticker from address (reverse lookup)
- */
+/** Load token address book - merges defaults with user additions */
+export function loadTokenBook(): Record<string, string> {
+  ensureDir();
+  migrateFromLegacy();
+  
+  const bookPath = paths.tokenBook();
+  let userBook: Record<string, string> = {};
+  
+  try {
+    if (fs.existsSync(bookPath)) {
+      userBook = JSON.parse(fs.readFileSync(bookPath, 'utf-8'));
+    }
+  } catch {
+    // Fall through to defaults
+  }
+  
+  // Defaults first, user overrides on top
+  return { ...defaultTokenBook, ...userBook };
+}
+
+/** Save token address book */
+export function saveTokenBook(book: Record<string, string>): void {
+  ensureDir();
+  fs.writeFileSync(paths.tokenBook(), JSON.stringify(book, null, 2), {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
+}
+
+/** Resolve ticker to address. Passes through if already an address. */
+export function resolveToken(tickerOrAddress: string): string {
+  if (tickerOrAddress.length > 32) return tickerOrAddress;
+  
+  const book = loadTokenBook();
+  return book[tickerOrAddress.toUpperCase()] || tickerOrAddress;
+}
+
+/** Reverse lookup: address → ticker */
 export function getTickerFromAddress(address: string): string | null {
   const book = loadTokenBook();
-  
   for (const [ticker, addr] of Object.entries(book)) {
-    if (addr === address) {
-      return ticker;
-    }
+    if (addr === address) return ticker;
   }
-  
   return null;
-}
-
-/**
- * Add token to address book
- */
-export function addToken(ticker: string, address: string): void {
-  const book = loadTokenBook();
-  const upperTicker = ticker.toUpperCase();
-  
-  book[upperTicker] = address;
-  saveTokenBook(book);
-  
-  console.log(`✅ Added ${upperTicker} → ${address}`);
-}
-
-/**
- * Remove token from address book
- */
-export function removeToken(ticker: string): void {
-  const book = loadTokenBook();
-  const upperTicker = ticker.toUpperCase();
-  
-  if (book[upperTicker]) {
-    delete book[upperTicker];
-    saveTokenBook(book);
-    console.log(`✅ Removed ${upperTicker}`);
-  } else {
-    console.log(`⚠️  ${upperTicker} not found in address book`);
-  }
-}
-
-/**
- * List all tokens in address book
- */
-export function listTokens(): void {
-  const book = loadTokenBook();
-  const entries = Object.entries(book);
-  
-  if (entries.length === 0) {
-    console.log('📋 Token address book is empty');
-    return;
-  }
-  
-  console.log('\n📋 Token Address Book:\n');
-  console.table(
-    entries.map(([ticker, address]) => ({
-      Ticker: ticker,
-      Address: address,
-    }))
-  );
 }

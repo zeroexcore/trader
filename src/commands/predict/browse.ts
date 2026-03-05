@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import { listEvents, microToUsd } from '../../utils/prediction.js';
 
-export const listCommand = new Command('list')
-  .description('List prediction market events')
+export const browseCommand = new Command('browse')
+  .description('Discover popular and liquid prediction markets')
   .option('-c, --category <category>', 'Filter by category (crypto, politics, sports, esports, culture, economics, tech)')
   .option('-s, --status <status>', 'Filter by status (open, closed, settled)')
   .option('-l, --limit <number>', 'Number of results', '10')

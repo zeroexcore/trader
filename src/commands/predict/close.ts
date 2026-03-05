@@ -8,7 +8,8 @@ import { getRpcUrl, requirePassword } from '../shared.js';
 export const closeCommand = new Command('close')
   .argument('<market-id>', 'Market ID')
   .description('Close entire position for a market')
-  .action(async (marketId) => {
+  .option('-n, --note <note>', 'Trading journal note')
+  .action(async (marketId, options) => {
     const password = requirePassword();
 
     try {

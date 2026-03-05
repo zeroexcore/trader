@@ -12,6 +12,7 @@ export const buyCommand = new Command('buy')
   .argument('<amount>', 'Amount in USD')
   .description('Buy YES or NO contracts')
   .option('--max-price <price>', 'Maximum price per contract in USD')
+  .option('-n, --note <note>', 'Trading journal note')
   .action(async (marketId, side, amount, options) => {
     const password = requirePassword();
 
@@ -73,6 +74,7 @@ export const buyCommand = new Command('buy')
         payoutIfWin: actualContracts,
         txSignature: signature,
         positionPubkey: orderResponse.order.orderPubkey,
+        notes: options.note,
       });
 
       console.log('\n✅ Bet placed successfully!');

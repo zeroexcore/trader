@@ -8,7 +8,8 @@ import { getRpcUrl, requirePassword } from '../shared.js';
 export const claimCommand = new Command('claim')
   .argument('<market-id-or-pubkey>', 'Market ID or position pubkey')
   .description('Claim winnings from a resolved position')
-  .action(async (marketIdOrPubkey) => {
+  .option('-n, --note <note>', 'Trading journal note')
+  .action(async (marketIdOrPubkey, options) => {
     const password = requirePassword();
 
     try {

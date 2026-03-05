@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getMarket, microToUsd } from '../../utils/prediction.js';
 
-export const marketCommand = new Command('market')
+export const showCommand = new Command('show')
   .argument('<market-id>', 'Market ID')
   .description('Get detailed market information')
   .action(async (marketId) => {
