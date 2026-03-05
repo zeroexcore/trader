@@ -1,11 +1,6 @@
 import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
 import Big from 'big.js';
-
-// Jupiter Prediction Market API v1
-const PREDICTION_API = 'https://api.jup.ag/prediction/v1';
-
-// USDC mint for deposits
-const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+import { apis, tokens, requireJupiterKey } from '../config.js';
 
 // Micro USD conversion (6 decimals)
 const MICRO_USD = new Big(1_000_000);
@@ -93,15 +88,11 @@ export interface OrderResponse {
 }
 
 function getApiKey(): string {
-  const key = process.env.JUPITER_API_KEY;
-  if (!key) {
-    throw new Error('JUPITER_API_KEY not set. Get key at https://portal.jup.ag');
-  }
-  return key;
+  return requireJupiterKey();
 }
 
 async function predictionFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${PREDICTION_API}${path}`, {
+  const response = await fetch(`${apis.jupiterPrediction}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -219,7 +210,7 @@ export async function createOrder(params: {
       isYes,
       isBuy: true,
       depositAmount,
-      depositMint: USDC_MINT,
+      depositMint: tokens.USDC,
     }),
   });
 }

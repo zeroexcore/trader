@@ -1,4 +1,5 @@
 import Big from 'big.js';
+import { requireHeliusKey, apis, tokens, getDecimalsFromCache } from '../config.js';
 
 /**
  * Convert human-readable amount to smallest unit (with decimals)
@@ -82,30 +83,22 @@ export function subtractAmounts(amount1: string | number, amount2: string | numb
  * Get token decimals from Helius or cache
  */
 export async function getTokenDecimals(mintAddress: string): Promise<number> {
-  const heliusApiKey = process.env.HELIUS_API_KEY;
-  if (!heliusApiKey) {
-    throw new Error('HELIUS_API_KEY not set');
-  }
+  const heliusApiKey = requireHeliusKey();
 
   // Special case for native SOL
-  if (mintAddress === 'So11111111111111111111111111111111111111112') {
+  if (mintAddress === tokens.SOL) {
     return 9;
   }
 
-  // Common tokens cache to avoid API calls
-  const commonDecimals: Record<string, number> = {
-    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 6, // USDC
-    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 6, // USDT
-    'So11111111111111111111111111111111111111112': 9, // SOL
-  };
-
-  if (commonDecimals[mintAddress]) {
-    return commonDecimals[mintAddress];
+  // Check centralized cache first
+  const cached = getDecimalsFromCache(mintAddress);
+  if (cached !== undefined) {
+    return cached;
   }
 
   // Fetch from Helius DAS API
   try {
-    const url = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+    const url = apis.heliusRpc(heliusApiKey);
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

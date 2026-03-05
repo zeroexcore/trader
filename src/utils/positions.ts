@@ -1,15 +1,15 @@
 import fs from 'fs';
 import path from 'path';
+import { paths, apis, tokens, requireHeliusKey } from '../config.js';
 
-// Store positions alongside wallet in secure location
-const OPENCLAW_DIR = path.join(process.env.HOME || '', '.openclaw');
-const POSITIONS_FILE = path.join(OPENCLAW_DIR, 'trader-positions.json');
+// Legacy positions file for migration
 const LEGACY_POSITIONS_FILE = path.join(process.cwd(), 'positions.json');
 
 // Ensure directory exists with secure permissions
 function ensureSecureDir(): void {
-  if (!fs.existsSync(OPENCLAW_DIR)) {
-    fs.mkdirSync(OPENCLAW_DIR, { mode: 0o700, recursive: true });
+  const openclawDir = paths.openclawDir();
+  if (!fs.existsSync(openclawDir)) {
+    fs.mkdirSync(openclawDir, { mode: 0o700, recursive: true });
   }
 }
 
@@ -17,8 +17,10 @@ function ensureSecureDir(): void {
  * Migrate positions from legacy location (./positions.json) to secure location
  */
 function migrateFromLegacy(): void {
+  const positionsFile = paths.positionsFile();
+  
   // If new file exists, no need to migrate
-  if (fs.existsSync(POSITIONS_FILE)) {
+  if (fs.existsSync(positionsFile)) {
     return;
   }
   
@@ -30,12 +32,12 @@ function migrateFromLegacy(): void {
       const data = JSON.parse(content);
       
       // Write to new secure location
-      fs.writeFileSync(POSITIONS_FILE, JSON.stringify(data, null, 2), {
+      fs.writeFileSync(positionsFile, JSON.stringify(data, null, 2), {
         encoding: 'utf-8',
         mode: 0o600
       });
       
-      console.log(`📦 Migrated ${data.positions?.length || 0} positions to secure location: ${POSITIONS_FILE}`);
+      console.log(`📦 Migrated ${data.positions?.length || 0} positions to secure location: ${positionsFile}`);
       console.log(`⚠️  You can delete the old file: ${LEGACY_POSITIONS_FILE}`);
     } catch (error) {
       console.warn('Failed to migrate positions from legacy location:', error);
@@ -97,9 +99,10 @@ export function loadPositions(): PositionsData {
   // Migrate from legacy location if needed
   migrateFromLegacy();
   
+  const positionsFile = paths.positionsFile();
   try {
-    if (fs.existsSync(POSITIONS_FILE)) {
-      const content = fs.readFileSync(POSITIONS_FILE, 'utf-8');
+    if (fs.existsSync(positionsFile)) {
+      const content = fs.readFileSync(positionsFile, 'utf-8');
       return JSON.parse(content);
     }
   } catch (error) {
@@ -116,7 +119,7 @@ export function loadPositions(): PositionsData {
  * Get the positions file path (for documentation/debugging)
  */
 export function getPositionsFilePath(): string {
-  return POSITIONS_FILE;
+  return paths.positionsFile();
 }
 
 /**
@@ -125,9 +128,10 @@ export function getPositionsFilePath(): string {
 export function savePositions(data: PositionsData): void {
   ensureSecureDir();
   
+  const positionsFile = paths.positionsFile();
   try {
     data.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(POSITIONS_FILE, JSON.stringify(data, null, 2), { 
+    fs.writeFileSync(positionsFile, JSON.stringify(data, null, 2), { 
       encoding: 'utf-8',
       mode: 0o600  // Only owner can read/write
     });
@@ -327,12 +331,8 @@ function formatDuration(ms: number): string {
  * Fetch current price for a token from Helius DAS API
  */
 async function fetchTokenPrice(mint: string): Promise<number> {
-  const heliusApiKey = process.env.HELIUS_API_KEY;
-  if (!heliusApiKey) {
-    throw new Error('HELIUS_API_KEY not set in environment');
-  }
-
-  const url = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+  const heliusApiKey = requireHeliusKey();
+  const url = apis.heliusRpc(heliusApiKey);
   
   const response = await fetch(url, {
     method: 'POST',
@@ -357,9 +357,9 @@ async function fetchTokenPrice(mint: string): Promise<number> {
     // Fallback to Jupiter quote API
     try {
       const decimals = data.result?.token_info?.decimals || 9;
-      const quoteUrl = new URL('https://quote-api.jup.ag/v6/quote');
+      const quoteUrl = new URL(apis.jupiterQuote);
       quoteUrl.searchParams.append('inputMint', mint);
-      quoteUrl.searchParams.append('outputMint', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'); // USDC
+      quoteUrl.searchParams.append('outputMint', tokens.USDC);
       quoteUrl.searchParams.append('amount', Math.pow(10, decimals).toString()); // 1 token
       
       const quoteResponse = await fetch(quoteUrl.toString());

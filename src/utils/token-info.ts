@@ -1,3 +1,6 @@
+import { apis, explorers, requireHeliusKey } from '../config.js';
+import { resolveToken } from './token-book.js';
+
 /**
  * Token information aggregation from multiple sources
  * - Helius DAS API for metadata and verification
@@ -57,12 +60,8 @@ export interface TokenInfo {
  * Get token info from Helius DAS API
  */
 async function getHeliusTokenInfo(mintAddress: string): Promise<Partial<TokenInfo>> {
-  const heliusApiKey = process.env.HELIUS_API_KEY;
-  if (!heliusApiKey) {
-    throw new Error('HELIUS_API_KEY not set');
-  }
-
-  const url = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+  const heliusApiKey = requireHeliusKey();
+  const url = apis.heliusRpc(heliusApiKey);
   
   try {
     const response = await fetch(url, {
@@ -103,10 +102,8 @@ async function getHeliusTokenInfo(mintAddress: string): Promise<Partial<TokenInf
  * Get token holders count via Helius
  */
 async function getTokenHolders(mintAddress: string): Promise<number | undefined> {
-  const heliusApiKey = process.env.HELIUS_API_KEY;
-  if (!heliusApiKey) return undefined;
-
-  const url = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+  const heliusApiKey = requireHeliusKey();
+  const url = apis.heliusRpc(heliusApiKey);
   
   try {
     // Get largest token accounts (top 20)
@@ -274,30 +271,10 @@ async function getBirdeyeInfo(mintAddress: string): Promise<Partial<TokenInfo>> 
  * Simplified to use only Helius + DexScreener (most reliable)
  */
 export async function getTokenInfo(mintOrSymbol: string): Promise<TokenInfo> {
-  let mintAddress = mintOrSymbol;
+  const mintAddress = resolveToken(mintOrSymbol);
   
-  // If it looks like a symbol, check our token book first
-  if (mintOrSymbol.length < 32) {
-    // Try token book first (from tokens.json)
-    try {
-      const tokenBookPath = require('path').join(process.cwd(), 'tokens.json');
-      const fs = require('fs');
-      if (fs.existsSync(tokenBookPath)) {
-        const book = JSON.parse(fs.readFileSync(tokenBookPath, 'utf-8'));
-        const upperSymbol = mintOrSymbol.toUpperCase();
-        if (book[upperSymbol]) {
-          mintAddress = book[upperSymbol];
-          console.log(`✅ Found ${upperSymbol} in token book`);
-        }
-      }
-    } catch (e) {
-      // Token book not found, continue
-    }
-    
-    // If still a symbol (not found in book), it must be provided as address
-    if (mintAddress.length < 32) {
-      throw new Error(`Token symbol '${mintOrSymbol}' not found in token book. Use address or add to book with: npx tsx src/cli.ts book add ${mintOrSymbol.toUpperCase()} <address>`);
-    }
+  if (mintAddress.length < 32) {
+    throw new Error(`Token symbol '${mintOrSymbol}' not found in token book. Use address or add to book with: trader book add ${mintOrSymbol.toUpperCase()} <address>`);
   }
 
   console.log(`🔍 Fetching token info from Helius + DexScreener...`);
@@ -424,6 +401,16 @@ export function formatTokenInfo(info: TokenInfo): string {
 🔗 LINKS
    ${links.join('\n   ')}
 `);
+  }
+
+  // Explorers
+  sections.push(`
+🌍 EXPLORERS
+   Solscan: ${explorers.solscanToken(info.address)}
+   Solana Explorer: ${explorers.solanaExplorer(info.address)}
+`);
+  if (info.markets && info.markets.length > 0) {
+    sections.push(`   DexScreener: ${explorers.dexscreener(info.markets[0].pair)}\n`);
   }
 
   // Markets

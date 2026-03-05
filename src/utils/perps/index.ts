@@ -2,6 +2,7 @@ import { AnchorProvider, Program, Wallet, BN } from "@coral-xyz/anchor"
 import { Connection, Keypair, PublicKey } from "@solana/web3.js"
 import Big from "big.js"
 import { createRequire } from "module"
+import { perps as perpsConfig } from "../../config.js"
 
 // Load IDL using createRequire for Node.js compatibility
 const require = createRequire(import.meta.url)
@@ -9,20 +10,20 @@ const IDL = require("./idl.json")
 
 // Program IDs
 export const JUPITER_PERPETUALS_PROGRAM_ID = new PublicKey(
-  "PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu"
+  perpsConfig.programId
 )
 
 export const JLP_POOL_ACCOUNT_PUBKEY = new PublicKey(
-  "5BUwFW4nRbftYTDMbgxykoFWqWHPzahFSNAaaaJtVKsq"
+  perpsConfig.poolAccount
 )
 
 // Custody accounts
 export const CUSTODY = {
-  SOL: new PublicKey("7xS2gz2bTp3fwCC7knJvUWTEU9Tycczu6VhJYKgi1wdz"),
-  ETH: new PublicKey("AQCGyheWPLeo6Qp9WpYS9m3Qj479t7R636N9ey1rEjEn"),
-  BTC: new PublicKey("5Pv3gM9JrFFH883SWAhvJC9RPYmo8UNxuFtv5bMMALkm"),
-  USDC: new PublicKey("G18jKKXQwBbrHeiK3C9MRXhkHsLHf7XgCSisykV46EZa"),
-  USDT: new PublicKey("4vkNeXiYEUizLdrpdPS1eC2mccyM4NUPRtERrk6ZETkk"),
+  SOL: new PublicKey(perpsConfig.custody.SOL),
+  ETH: new PublicKey(perpsConfig.custody.ETH),
+  BTC: new PublicKey(perpsConfig.custody.BTC),
+  USDC: new PublicKey(perpsConfig.custody.USDC),
+  USDT: new PublicKey(perpsConfig.custody.USDT),
 } as const
 
 const CUSTODY_NAMES = Object.fromEntries(

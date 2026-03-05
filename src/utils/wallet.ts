@@ -1,10 +1,8 @@
 import { Keypair, PublicKey } from '@solana/web3.js';
 import fs from 'fs';
-import path from 'path';
 import crypto from 'crypto';
+import { paths } from '../config.js';
 
-const WALLET_DIR = path.join(process.env.HOME || '', '.openclaw');
-const WALLET_PATH = path.join(WALLET_DIR, 'trader-wallet.enc');
 const ALGORITHM = 'aes-256-gcm';
 
 /**
@@ -13,14 +11,16 @@ const ALGORITHM = 'aes-256-gcm';
  * NOTE: This can be run by agent (one-time operation). Export requires manual confirmation.
  */
 export function generateWallet(password: string): PublicKey {
+  const walletDir = paths.openclawDir();
+  const walletPath = paths.walletFile();
   
   // Create .openclaw directory if it doesn't exist
-  if (!fs.existsSync(WALLET_DIR)) {
-    fs.mkdirSync(WALLET_DIR, { mode: 0o700, recursive: true });
+  if (!fs.existsSync(walletDir)) {
+    fs.mkdirSync(walletDir, { mode: 0o700, recursive: true });
   }
 
   // Check if wallet already exists
-  if (fs.existsSync(WALLET_PATH)) {
+  if (fs.existsSync(walletPath)) {
     throw new Error('Wallet already exists. Use load-wallet to retrieve address.');
   }
 
@@ -29,9 +29,9 @@ export function generateWallet(password: string): PublicKey {
   
   // Encrypt and save
   const encrypted = encryptKeypair(keypair, password);
-  fs.writeFileSync(WALLET_PATH, JSON.stringify(encrypted), { mode: 0o600 });
+  fs.writeFileSync(walletPath, JSON.stringify(encrypted), { mode: 0o600 });
   
-  console.log('⚠️  SECURITY NOTICE: Wallet generated and encrypted at:', WALLET_PATH);
+  console.log('⚠️  SECURITY NOTICE: Wallet generated and encrypted at:', walletPath);
   console.log('⚠️  DO NOT share private key or password with anyone');
   
   return keypair.publicKey;
@@ -41,11 +41,12 @@ export function generateWallet(password: string): PublicKey {
  * Load existing wallet and return public key only
  */
 export function loadWallet(password: string): PublicKey {
-  if (!fs.existsSync(WALLET_PATH)) {
+  const walletPath = paths.walletFile();
+  if (!fs.existsSync(walletPath)) {
     throw new Error('No wallet found. Use generate-wallet first.');
   }
 
-  const encrypted = JSON.parse(fs.readFileSync(WALLET_PATH, 'utf-8'));
+  const encrypted = JSON.parse(fs.readFileSync(walletPath, 'utf-8'));
   const keypair = decryptKeypair(encrypted, password);
   
   return keypair.publicKey;
@@ -55,11 +56,12 @@ export function loadWallet(password: string): PublicKey {
  * Load keypair for signing transactions (internal use only)
  */
 export function loadKeypairForSigning(password: string): Keypair {
-  if (!fs.existsSync(WALLET_PATH)) {
+  const walletPath = paths.walletFile();
+  if (!fs.existsSync(walletPath)) {
     throw new Error('No wallet found. Use generate-wallet first.');
   }
 
-  const encrypted = JSON.parse(fs.readFileSync(WALLET_PATH, 'utf-8'));
+  const encrypted = JSON.parse(fs.readFileSync(walletPath, 'utf-8'));
   return decryptKeypair(encrypted, password);
 }
 

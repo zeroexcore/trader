@@ -1,7 +1,5 @@
 import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
-
-// Jupiter Ultra API v1 (requires API key from portal.jup.ag)
-const JUPITER_ULTRA_API = 'https://api.jup.ag/ultra/v1';
+import { apis, tokens, requireJupiterKey } from '../config.js';
 
 export interface SwapParams {
   inputMint: string;
@@ -27,12 +25,9 @@ export interface SwapQuote {
 export async function getSwapQuote(params: SwapParams & { taker?: string }): Promise<SwapQuote> {
   const { inputMint, outputMint, amount, slippageBps = 50, taker } = params;
 
-  const jupiterApiKey = process.env.JUPITER_API_KEY;
-  if (!jupiterApiKey) {
-    throw new Error('JUPITER_API_KEY not set. Get free key at https://portal.jup.ag');
-  }
+  const jupiterApiKey = requireJupiterKey();
 
-  const url = new URL(`${JUPITER_ULTRA_API}/order`);
+  const url = new URL(`${apis.jupiterUltra}/order`);
   url.searchParams.append('inputMint', inputMint);
   url.searchParams.append('outputMint', outputMint);
   url.searchParams.append('amount', amount.toString());
@@ -73,10 +68,7 @@ export async function executeSwap(
   quote: SwapQuote,
   priorityFeeLamports?: number
 ): Promise<string> {
-  const jupiterApiKey = process.env.JUPITER_API_KEY;
-  if (!jupiterApiKey) {
-    throw new Error('JUPITER_API_KEY not set. Get free key at https://portal.jup.ag');
-  }
+  const jupiterApiKey = requireJupiterKey();
 
   // Extract transaction from order response
   const transactionBase64 = quote.transaction;
@@ -90,7 +82,7 @@ export async function executeSwap(
   const signedTransaction = Buffer.from(transaction.serialize()).toString('base64');
 
   // Execute via Ultra API
-  const executeResponse = await fetch(`${JUPITER_ULTRA_API}/execute`, {
+  const executeResponse = await fetch(`${apis.jupiterUltra}/execute`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -122,7 +114,7 @@ export async function executeSwap(
  * Get token list for reference
  */
 export async function searchToken(query: string): Promise<any[]> {
-  const response = await fetch('https://token.jup.ag/strict');
+  const response = await fetch(apis.jupiterTokenList);
   const tokens = await response.json() as any[];
 
   const searchLower = query.toLowerCase();
@@ -134,7 +126,7 @@ export async function searchToken(query: string): Promise<any[]> {
 
 // Common token mints for quick reference
 export const COMMON_TOKENS = {
-  SOL: 'So11111111111111111111111111111111111111112',
-  USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-  USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  SOL: tokens.SOL,
+  USDC: tokens.USDC,
+  USDT: tokens.USDT,
 };

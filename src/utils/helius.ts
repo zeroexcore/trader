@@ -1,4 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
+import { requireHeliusKey, apis, tokens } from '../config.js';
 
 export interface TokenBalance {
   name: string;
@@ -19,12 +20,8 @@ export interface PortfolioData {
  * Fetch portfolio using Helius DAS API
  */
 export async function getPortfolio(address: string): Promise<PortfolioData> {
-  const heliusApiKey = process.env.HELIUS_API_KEY;
-  if (!heliusApiKey) {
-    throw new Error('HELIUS_API_KEY not set in environment');
-  }
-
-  const url = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+  const heliusApiKey = requireHeliusKey();
+  const url = apis.heliusRpc(heliusApiKey);
   
   const response = await fetch(url, {
     method: 'POST',
@@ -49,7 +46,7 @@ export async function getPortfolio(address: string): Promise<PortfolioData> {
     throw new Error(`Helius API error: ${data.error.message}`);
   }
 
-  const tokens: TokenBalance[] = [];
+  const tokenBalances: TokenBalance[] = [];
   let totalValueUsd = 0;
 
   // Get native SOL balance separately using getBalance RPC call
@@ -82,7 +79,7 @@ export async function getPortfolio(address: string): Promise<PortfolioData> {
             id: 'sol-price',
             method: 'getAsset',
             params: {
-              id: 'So11111111111111111111111111111111111111112',
+              id: tokens.SOL,
             },
           }),
         });
@@ -99,10 +96,10 @@ export async function getPortfolio(address: string): Promise<PortfolioData> {
 
       const solValueUsd = solBalance * solPrice;
 
-      tokens.push({
+      tokenBalances.push({
         name: 'Solana',
         symbol: 'SOL',
-        mint: 'So11111111111111111111111111111111111111112',
+        mint: tokens.SOL,
         balance: solBalance,
         decimals: 9,
         valueUsd: solValueUsd,
@@ -126,9 +123,9 @@ export async function getPortfolio(address: string): Promise<PortfolioData> {
       // If Helius doesn't have price, try Jupiter quote vs USDC
       if (pricePerToken === 0 && normalizedBalance > 0) {
         try {
-          const quoteUrl = new URL('https://quote-api.jup.ag/v6/quote');
+          const quoteUrl = new URL(apis.jupiterQuote);
           quoteUrl.searchParams.append('inputMint', asset.id);
-          quoteUrl.searchParams.append('outputMint', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'); // USDC
+          quoteUrl.searchParams.append('outputMint', tokens.USDC);
           quoteUrl.searchParams.append('amount', Math.pow(10, decimals).toString()); // 1 token
           
           const quoteResponse = await fetch(quoteUrl.toString());
@@ -144,7 +141,7 @@ export async function getPortfolio(address: string): Promise<PortfolioData> {
       
       const valueUsd = normalizedBalance * pricePerToken;
 
-      tokens.push({
+      tokenBalances.push({
         name: asset.content?.metadata?.name || 'Unknown',
         symbol: asset.content?.metadata?.symbol || '???',
         mint: asset.id,
@@ -159,11 +156,11 @@ export async function getPortfolio(address: string): Promise<PortfolioData> {
   }
 
   // Sort by USD value descending
-  tokens.sort((a, b) => b.valueUsd - a.valueUsd);
+  tokenBalances.sort((a, b) => b.valueUsd - a.valueUsd);
 
   return {
     totalValueUsd,
-    tokens,
+    tokens: tokenBalances,
   };
 }
 
@@ -174,12 +171,8 @@ export async function getTransactionHistory(
   address: string,
   mint?: string
 ): Promise<any[]> {
-  const heliusApiKey = process.env.HELIUS_API_KEY;
-  if (!heliusApiKey) {
-    throw new Error('HELIUS_API_KEY not set in environment');
-  }
-
-  const url = `https://api.helius.xyz/v0/addresses/${address}/transactions?api-key=${heliusApiKey}`;
+  const heliusApiKey = requireHeliusKey();
+  const url = apis.heliusTransactions(address, heliusApiKey);
   
   const response = await fetch(url);
   const transactions = await response.json() as any[];
@@ -198,12 +191,8 @@ export async function getTransactionHistory(
  * Calculate PnL for a specific token
  */
 export async function calculatePnL(address: string, mint: string) {
-  const heliusApiKey = process.env.HELIUS_API_KEY;
-  if (!heliusApiKey) {
-    throw new Error('HELIUS_API_KEY not set in environment');
-  }
-
-  const url = `https://api.helius.xyz/v0/addresses/${address}/transactions?api-key=${heliusApiKey}`;
+  const heliusApiKey = requireHeliusKey();
+  const url = apis.heliusTransactions(address, heliusApiKey);
   const response = await fetch(url);
   const transactions = await response.json() as any[];
   
@@ -213,7 +202,7 @@ export async function calculatePnL(address: string, mint: string) {
   let totalRevenue = 0;
 
   // Special handling for native SOL
-  const isNativeSOL = mint === 'So11111111111111111111111111111111111111112';
+  const isNativeSOL = mint === tokens.SOL;
 
   for (const tx of transactions) {
     if (isNativeSOL) {
@@ -225,7 +214,7 @@ export async function calculatePnL(address: string, mint: string) {
         let priceAtTime = 0;
         try {
           // In production, you'd fetch historical price. For now, use current price as estimate
-          const solPriceUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`;
+          const solPriceUrl = apis.heliusRpc(heliusApiKey);
           const priceResponse = await fetch(solPriceUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
