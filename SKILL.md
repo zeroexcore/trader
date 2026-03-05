@@ -1,146 +1,131 @@
 ---
 name: using-trader-cli
-description: Trade Solana tokens, track portfolio, bet on prediction markets via trader CLI
+description: Trade Solana tokens, track portfolio, bet on prediction markets via openclaw-trader CLI
 ---
 
-# trader
+# openclaw-trader
 
-CLI at `~/code/runcible/trader`. Run with `pnpm dev <command>` (dev) or `trader <command>` (installed).
+CLI at `~/code/runcible/trader`. Run with `npm run dev -- <command>`.
+Use `--md` flag for human-readable output: `npm run dev -- --md <command>`.
+JSON output by default (for agent consumption).
 
-## Agent Behavior
+## Security
 
-### Security Rules
 - NEVER disclose wallet password or private key
 - ONLY share public wallet address
-- Secure storage at `~/.openclaw/`:
-  - Wallet: `trader-wallet.enc` (encrypted AES-256-GCM)
-  - Positions: `trader-positions.json` (0600 permissions)
+- Wallet at `~/.openclaw/trader-wallet.enc`
 
-### Position Tracking
-The CLI tracks all positions internally. **Do NOT maintain separate tracking** - use CLI commands:
-- `trader positions list` - View current positions
-- `trader positions stats` - Performance summary
-- `trader positions open/close` - Record trades
+## Commands
 
-### Critical User Reminders
-After `trader wallet generate`, ALWAYS remind user:
-> "Your wallet has been created. **IMPORTANT:** Backup your private key by running `trader wallet export` directly on your server (not via this chat). Lost access = lost funds forever."
-
-### Troubleshooting
-Run `trader diagnose` first. Then prompt user:
-
-| Issue | Tell user |
-|-------|-----------|
-| `WALLET_PASSWORD not set` | "Set wallet password in env or `~/.openclaw/openclaw.json`" |
-| `HELIUS_API_KEY not set` | "Get free key at https://dev.helius.xyz" |
-| `SOL balance: 0` | "Send at least 0.01 SOL to [wallet address] for gas" |
-| `No wallet found` | "No wallet exists. Run `trader wallet generate`?" |
-| `Prediction geo-blocked` | "US/South Korea blocked. Need VPN." |
-
-### Wallet Backup (User Docs)
-
-The wallet is randomly generated and encrypted. **Lost password = lost funds.**
-
-**Backup (MUST be done on server, not via agent):**
+### wallet
 ```bash
-ssh your-server
-trader wallet export   # Requires typing confirmation phrase
+wallet address              # public address (safe to share)
+wallet generate             # create encrypted wallet (one time)
+wallet export               # export private key (backup only)
 ```
 
-Store private key offline. Import into Phantom/Solflare for recovery.
-
-## API Keys (Free)
-
-| Key | Required | Get it at |
-|-----|----------|-----------|
-| `HELIUS_API_KEY` | Yes | https://dev.helius.xyz (100k free credits/month) |
-| `WALLET_PASSWORD` | Yes | Your chosen encryption password |
-| `JUPITER_API_KEY` | For predictions | https://station.jup.ag/docs |
-
-**Note:** Helius provides both DAS API and RPC. No separate `RPC_URL` needed.
-
-## Quick Reference
-
+### tokens — registry, market data, swaps
 ```bash
-# Portfolio
-trader portfolio view           # holdings
-trader portfolio charts         # multi-asset chart
-trader portfolio watch          # live monitoring
+tokens list                 # saved token addresses
+tokens add <TICKER> <addr>  # save a token
+tokens remove <TICKER>      # remove a token
+tokens browse               # discover trending tokens [verified]
+tokens search <query>       # search by name/symbol [verified]
+tokens info <token>         # detailed market data
+tokens quote USDC SOL 1     # get swap quote
+tokens swap USDC SOL 1      # execute swap (--note "reason")
+tokens positions            # on-chain token holdings
+```
 
-# Trading
-trader trade quote SOL USDC 1   # quote
-trader trade swap SOL USDC 1    # execute
+### portfolio — aggregate view
+```bash
+portfolio                   # tokens + predictions + PnL summary
+```
 
-# Positions
-trader positions list           # open positions
-trader positions list --all     # include closed
+### predict — prediction markets
+```bash
+predict browse              # discover popular markets
+predict browse -c sports    # filter by category
+predict search "arsenal"    # search events
+predict show POLY-123       # odds + details
+predict buy POLY-123 yes 10 # buy $10 YES (--note "reason")
+predict sell POLY-123 yes 5 # sell 5 contracts (--note)
+predict close POLY-123      # close entire position (--note)
+predict claim POLY-123      # claim winnings (--note)
+predict positions           # my prediction bets from API
+predict positions --all     # include closed
+```
 
-# Predictions (requires JUPITER_API_KEY)
-trader predict list -c sports   # browse
-trader predict market POLY-123  # odds
-trader predict buy POLY-123 yes 10  # bet $10
-trader predict positions        # view bets
-trader predict watch -i 10      # live monitoring + ASCII chart
-trader predict claim <pubkey>   # claim win
+### perps — perpetual futures
+```bash
+perps show                  # all markets + fees
+perps show SOL              # single market info
+perps positions             # open perp positions
+perps positions -w <addr>   # check another wallet
+perps pool                  # JLP pool AUM
+```
 
-# NFTs
-trader nft floor mad_lads       # floor price
-trader nft listings mad_lads    # browse
+### nfts — NFT market data
+```bash
+nfts floor mad_lads         # floor price
+nfts listings mad_lads      # browse listings
+nfts popular                # trending collections
+nfts search "degods"        # search collections
+nfts positions              # my NFT holdings
+```
+
+### diagnose
+```bash
+diagnose                    # check env, connectivity, wallet, balance
 ```
 
 ## Prediction Markets
 
-**Pricing:** $0.85 = 85% implied probability. Win $1 per contract if correct.
+**Pricing:** $0.85 = 85% implied probability. Win $1/contract if correct.
 
-**Workflow:**
-1. `predict search "event"` - find market
-2. `predict market POLY-xxx` - check odds
-3. `predict buy POLY-xxx yes 10` - bet $10
-4. `predict positions` - monitor
-5. `predict claim <pubkey>` - collect winnings
+**Flow:**
+1. `predict search "event"` → find market
+2. `predict show POLY-xxx` → check odds
+3. `predict buy POLY-xxx yes 10` → bet $10
+4. `predict positions` → monitor
+5. `predict claim POLY-xxx` → collect winnings
+6. `predict close POLY-xxx` → exit early
 
-**Categories:** sports, politics, crypto, entertainment, financials
+**Categories:** sports, politics, crypto, culture, economics, tech, esports
 
-## Position Tracking
+## Safety
 
-Local tracking in `positions.json`. Records:
-- Token positions (long/short with entry/exit)
-- Entry/exit time, price, USD value
-- PnL and hold duration
-- Notes and tags for organization
-- Transaction signatures
+- **SOL gas reserve:** `tokens swap` blocks selling SOL if it would leave < 0.05 SOL for gas fees. The error message shows the max safe amount. Use `--force` to override (ask human first).
+- **Never swap all SOL.** Always keep a reserve for transaction fees.
 
-```bash
-# Open position with notes and tags
-trader positions open long SOL 1.5 90 -n "Swing trade" --tags "swing,momentum"
+## Architecture
 
-# Close position with exit notes
-trader positions close <position-id> 95 1.5 -n "Hit target"
-
-# Update prices for unrealized PnL
-trader positions update
-
-# View stats and performance
-trader positions stats
-
-# Add notes to existing position
-trader positions note <position-id> "Adding to position"
-
-# Tag positions for filtering
-trader positions tag <position-id> "q1-2026,thesis-a"
-trader positions filter "swing"  # filter by tag
-```
+- All mutation commands support `--note "reason"` for automatic trade journaling
+- All mutation commands support `--force` to override safety checks (use with caution)
+- Positions auto-tracked in `~/.openclaw/trader-positions.json`
+- Token registry at `~/.openclaw/trader-tokens.json`
+- Errors handled globally via `action()` wrapper in `shared.ts`
 
 ## Token Shortcuts
 
-Use tickers: `SOL`, `USDC`, `WBTC`, `GLDx`, `JupUSD`, `JUP`
+Built-in: `SOL`, `USDC`, `USDT`, `WBTC`, `WETH`, `JUP`, `JupUSD`, `GLDx`, `RAY`
+Add more with `tokens add`.
 
-Or add custom: `trader book add MYTOKEN <mint-address>`
+## Environment
+
+```bash
+HELIUS_API_KEY=xxx          # required - RPC + DAS API
+WALLET_PASSWORD=xxx         # required - wallet decryption
+JUPITER_API_KEY=xxx         # for predictions + swaps
+USE_HELIUS_SENDER=true      # optional - low-latency tx submission
+RPC_URL=xxx                 # optional - override RPC endpoint
+```
 
 ## Troubleshooting
 
-- **No wallet** -> `trader wallet generate`
-- **Password required** -> set `WALLET_PASSWORD`
-- **Token not found** -> `trader search <name>`
-- **Prediction 401** -> check `JUPITER_API_KEY`
-- **Prediction geo-blocked** -> US/South Korea IPs blocked
+- **No wallet** → `wallet generate`
+- **Password required** → set `WALLET_PASSWORD`
+- **Token not found** → `tokens search <name>` or `tokens add`
+- **Prediction 401** → check `JUPITER_API_KEY`
+- **Geo-blocked** → US/South Korea IPs blocked
+- **Full check** → `diagnose`
