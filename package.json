@@ -10,6 +10,10 @@
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zeroexcore/trader"
+  },
   "publishConfig": {
     "access": "public"
   },
