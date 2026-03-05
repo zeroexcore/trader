@@ -1,6 +1,6 @@
 {
   "name": "@zeroexcore/trader",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Solana trading CLI - Trade tokens, track portfolio, bet on prediction markets",
   "type": "module",
   "main": "./dist/cli.js",
