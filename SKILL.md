@@ -7,27 +7,47 @@ description: Trade Solana tokens, track portfolio, bet on prediction markets via
 
 CLI at `~/code/runcible/trader`. Run with `pnpm dev <command>` (dev) or `trader <command>` (installed).
 
-## Security
+## Agent Behavior
 
+### Security Rules
 - NEVER disclose wallet password or private key
 - ONLY share public wallet address
 - Secure storage at `~/.openclaw/`:
   - Wallet: `trader-wallet.enc` (encrypted AES-256-GCM)
   - Positions: `trader-positions.json` (0600 permissions)
 
-### Wallet Backup
+### Position Tracking
+The CLI tracks all positions internally. **Do NOT maintain separate tracking** - use CLI commands:
+- `trader positions list` - View current positions
+- `trader positions stats` - Performance summary
+- `trader positions open/close` - Record trades
 
-The wallet is randomly generated and encrypted with your password. **If you lose the encrypted file or forget your password, funds are lost forever.**
+### Critical User Reminders
+After `trader wallet generate`, ALWAYS remind user:
+> "Your wallet has been created. **IMPORTANT:** Backup your private key by running `trader wallet export` directly on your server (not via this chat). Lost access = lost funds forever."
 
-**Backup procedure (MUST be done directly on server, not via agent):**
+### Troubleshooting
+Run `trader diagnose` first. Then prompt user:
+
+| Issue | Tell user |
+|-------|-----------|
+| `WALLET_PASSWORD not set` | "Set wallet password in env or `~/.openclaw/openclaw.json`" |
+| `HELIUS_API_KEY not set` | "Get free key at https://dev.helius.xyz" |
+| `SOL balance: 0` | "Send at least 0.01 SOL to [wallet address] for gas" |
+| `No wallet found` | "No wallet exists. Run `trader wallet generate`?" |
+| `Prediction geo-blocked` | "US/South Korea blocked. Need VPN." |
+
+### Wallet Backup (User Docs)
+
+The wallet is randomly generated and encrypted. **Lost password = lost funds.**
+
+**Backup (MUST be done on server, not via agent):**
 ```bash
 ssh your-server
 trader wallet export   # Requires typing confirmation phrase
 ```
 
-The `export` command requires manual confirmation and CANNOT be run via Telegram/Discord/agent for security.
-
-Store the private key securely offline (paper, hardware). Can be imported into Phantom/Solflare for recovery.
+Store private key offline. Import into Phantom/Solflare for recovery.
 
 ## API Keys (Free)
 

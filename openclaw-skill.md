@@ -8,16 +8,39 @@ metadata: {"openclaw":{"emoji":"💰","homepage":"https://github.com/zeroexcore/
 
 Solana trading CLI for portfolio management, token swaps, prediction markets, and NFTs.
 
-## Security
+## Agent Behavior
 
+### Security Rules
 - NEVER disclose wallet password or private key
 - ONLY share public wallet address when asked
 - Secure storage at `~/.openclaw/` (aligned with OpenClaw security model):
   - `trader-wallet.enc` - Encrypted wallet (AES-256-GCM)
   - `trader-positions.json` - Position history (0600 permissions)
-- Set secrets via `~/.openclaw/openclaw.json` skills config (recommended) or environment variables
 
-### Wallet Backup
+### Position Tracking
+The CLI tracks all positions internally in `~/.openclaw/trader-positions.json`. **Do NOT maintain separate position tracking** - always use the CLI commands:
+- `trader positions list` - View current positions
+- `trader positions stats` - Performance summary
+- `trader positions open/close` - Record trades
+
+### Critical User Reminders
+After running `trader wallet generate`, ALWAYS remind the user:
+> "Your wallet has been created. **IMPORTANT:** You must backup your private key by running `trader wallet export` directly on your server (not via this chat). If you lose access to the server or forget your password, your funds will be lost forever."
+
+### When to Prompt User for Help
+Run `trader diagnose` first when issues occur. Then prompt user if:
+
+| Issue | What to tell user |
+|-------|-------------------|
+| `WALLET_PASSWORD not set` | "Please set your wallet password. Add `WALLET_PASSWORD` to your environment or `~/.openclaw/openclaw.json`" |
+| `HELIUS_API_KEY not set` | "I need a Helius API key to connect to Solana. Get a free one at https://dev.helius.xyz and add it to your config." |
+| `SOL balance: 0` | "Your wallet needs SOL for transaction fees. Please send at least 0.01 SOL to: [wallet address]" |
+| `SOL balance low` | "Your SOL balance is low ([amount]). Consider adding more for gas fees." |
+| `No wallet found` | "No wallet exists yet. I can generate one with `trader wallet generate`. Want me to proceed?" |
+| `Prediction geo-blocked` | "Jupiter prediction markets are geo-blocked in your region (US/South Korea). You'll need a VPN to access them." |
+| `JUPITER_API_KEY not set` | "Prediction markets require a Jupiter API key. Get one at https://station.jup.ag/docs (it's free)." |
+
+### Wallet Backup (User Documentation)
 
 The wallet is randomly generated and encrypted with your password. **If you lose the encrypted file or forget your password, funds are lost forever.**
 
@@ -68,6 +91,12 @@ npm install -g @zeroexcore/trader
 ```
 
 ## Commands
+
+### Diagnostics
+```bash
+trader diagnose           # Check env vars, connectivity, SOL balance
+```
+Run this FIRST when troubleshooting any issues.
 
 ### Wallet
 ```bash

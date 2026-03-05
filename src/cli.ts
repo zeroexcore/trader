@@ -3,6 +3,8 @@ import { Connection } from '@solana/web3.js';
 import { Command } from 'commander';
 import dotenv from 'dotenv';
 import * as asciichart from 'asciichart';
+import fs from 'fs';
+import path from 'path';
 import { getTokenDecimals, toSmallestUnit, fromSmallestUnit } from './utils/amounts.js';
 import Big from 'big.js';
 import { calculatePnL, getPortfolio } from './utils/helius.js';
@@ -1984,6 +1986,141 @@ perps
 ║  🔗 Trade at: https://jup.ag/perps                           ║
 ╚═══════════════════════════════════════════════════════════════╝
 `);
+  });
+
+// Diagnostics command
+program
+  .command('diagnose')
+  .description('Check environment, connectivity, and wallet status')
+  .action(async () => {
+    console.log('\n🔍 TRADER DIAGNOSTICS\n');
+    
+    const checks: { name: string; status: 'ok' | 'warn' | 'fail'; message: string }[] = [];
+    
+    // 1. Check WALLET_PASSWORD
+    const password = process.env.WALLET_PASSWORD;
+    if (password) {
+      checks.push({ name: 'WALLET_PASSWORD', status: 'ok', message: 'Set' });
+    } else {
+      checks.push({ name: 'WALLET_PASSWORD', status: 'fail', message: 'Not set - required for wallet operations' });
+    }
+    
+    // 2. Check HELIUS_API_KEY
+    const heliusKey = process.env.HELIUS_API_KEY;
+    if (heliusKey) {
+      checks.push({ name: 'HELIUS_API_KEY', status: 'ok', message: 'Set' });
+    } else {
+      checks.push({ name: 'HELIUS_API_KEY', status: 'fail', message: 'Not set - get free key at https://dev.helius.xyz' });
+    }
+    
+    // 3. Check JUPITER_API_KEY (optional, for predictions)
+    const jupiterKey = process.env.JUPITER_API_KEY;
+    if (jupiterKey) {
+      checks.push({ name: 'JUPITER_API_KEY', status: 'ok', message: 'Set' });
+    } else {
+      checks.push({ name: 'JUPITER_API_KEY', status: 'warn', message: 'Not set - needed for prediction markets' });
+    }
+    
+    // 4. Check wallet file exists
+    const walletPath = path.join(process.env.HOME || '', '.openclaw', 'trader-wallet.enc');
+    if (fs.existsSync(walletPath)) {
+      checks.push({ name: 'Wallet file', status: 'ok', message: walletPath });
+    } else {
+      checks.push({ name: 'Wallet file', status: 'fail', message: 'Not found - run: trader wallet generate' });
+    }
+    
+    // 5. Test wallet decryption
+    let walletAddress: string | null = null;
+    if (password && fs.existsSync(walletPath)) {
+      try {
+        walletAddress = getWalletAddress(password);
+        checks.push({ name: 'Wallet decryption', status: 'ok', message: walletAddress });
+      } catch (e: any) {
+        checks.push({ name: 'Wallet decryption', status: 'fail', message: e.message });
+      }
+    } else {
+      checks.push({ name: 'Wallet decryption', status: 'warn', message: 'Skipped - missing password or wallet' });
+    }
+    
+    // 6. Test Helius RPC connectivity
+    if (heliusKey) {
+      try {
+        const rpcUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusKey}`;
+        const connection = new Connection(rpcUrl);
+        const blockHeight = await connection.getBlockHeight();
+        checks.push({ name: 'Helius RPC', status: 'ok', message: `Connected (block ${blockHeight})` });
+      } catch (e: any) {
+        checks.push({ name: 'Helius RPC', status: 'fail', message: e.message });
+      }
+    } else {
+      checks.push({ name: 'Helius RPC', status: 'warn', message: 'Skipped - no API key' });
+    }
+    
+    // 7. Check SOL balance for gas
+    if (walletAddress && heliusKey) {
+      try {
+        const rpcUrl = `https://mainnet.helius-rpc.com/?api-key=${heliusKey}`;
+        const connection = new Connection(rpcUrl);
+        const { PublicKey: PK } = await import('@solana/web3.js');
+        const balance = await connection.getBalance(new PK(walletAddress));
+        const solBalance = balance / 1e9;
+        
+        if (solBalance >= 0.01) {
+          checks.push({ name: 'SOL balance', status: 'ok', message: `${solBalance.toFixed(4)} SOL` });
+        } else if (solBalance > 0) {
+          checks.push({ name: 'SOL balance', status: 'warn', message: `${solBalance.toFixed(4)} SOL - low, add more for gas` });
+        } else {
+          checks.push({ name: 'SOL balance', status: 'fail', message: '0 SOL - fund wallet for transactions' });
+        }
+      } catch (e: any) {
+        checks.push({ name: 'SOL balance', status: 'fail', message: e.message });
+      }
+    } else {
+      checks.push({ name: 'SOL balance', status: 'warn', message: 'Skipped - missing wallet or API key' });
+    }
+    
+    // 8. Test Jupiter API (predictions)
+    if (jupiterKey) {
+      try {
+        const res = await fetch('https://perps-api.jup.ag/v1/prediction/events?limit=1', {
+          headers: { 'Authorization': `Bearer ${jupiterKey}` }
+        });
+        if (res.ok) {
+          checks.push({ name: 'Jupiter Predictions API', status: 'ok', message: 'Connected' });
+        } else if (res.status === 401) {
+          checks.push({ name: 'Jupiter Predictions API', status: 'fail', message: 'Invalid API key' });
+        } else if (res.status === 403) {
+          checks.push({ name: 'Jupiter Predictions API', status: 'fail', message: 'Geo-blocked (US/South Korea)' });
+        } else {
+          checks.push({ name: 'Jupiter Predictions API', status: 'warn', message: `HTTP ${res.status}` });
+        }
+      } catch (e: any) {
+        checks.push({ name: 'Jupiter Predictions API', status: 'fail', message: e.message });
+      }
+    } else {
+      checks.push({ name: 'Jupiter Predictions API', status: 'warn', message: 'Skipped - no API key' });
+    }
+    
+    // Display results
+    const icons = { ok: '✅', warn: '⚠️ ', fail: '❌' };
+    
+    for (const check of checks) {
+      console.log(`${icons[check.status]} ${check.name}: ${check.message}`);
+    }
+    
+    // Summary
+    const fails = checks.filter(c => c.status === 'fail').length;
+    const warns = checks.filter(c => c.status === 'warn').length;
+    
+    console.log('\n' + '─'.repeat(50));
+    if (fails === 0 && warns === 0) {
+      console.log('✅ All checks passed - ready to trade!');
+    } else if (fails === 0) {
+      console.log(`⚠️  ${warns} warning(s) - core functionality available`);
+    } else {
+      console.log(`❌ ${fails} issue(s) need attention`);
+    }
+    console.log();
   });
 
 program.parse();
