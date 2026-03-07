@@ -40,7 +40,7 @@ export function generateWallet(password: string): PublicKey {
 /**
  * Load existing wallet and return public key only
  */
-export function loadWallet(password: string): PublicKey {
+function loadWallet(password: string): PublicKey {
   const walletPath = paths.walletFile();
   if (!fs.existsSync(walletPath)) {
     throw new Error('No wallet found. Use generate-wallet first.');
@@ -65,8 +65,11 @@ export function loadKeypairForSigning(password: string): Keypair {
   return decryptKeypair(encrypted, password);
 }
 
+const SCRYPT_OPTS = { N: 16384, r: 8, p: 1 };
+
 function encryptKeypair(keypair: Keypair, password: string) {
-  const key = crypto.scryptSync(password, 'salt', 32);
+  const salt = crypto.randomBytes(32);
+  const key = crypto.scryptSync(password, salt, 32, SCRYPT_OPTS);
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
   
@@ -77,6 +80,7 @@ function encryptKeypair(keypair: Keypair, password: string) {
   const authTag = cipher.getAuthTag();
   
   return {
+    salt: salt.toString('hex'),
     iv: iv.toString('hex'),
     authTag: authTag.toString('hex'),
     encrypted: encrypted.toString('hex')
@@ -84,7 +88,9 @@ function encryptKeypair(keypair: Keypair, password: string) {
 }
 
 function decryptKeypair(encrypted: any, password: string): Keypair {
-  const key = crypto.scryptSync(password, 'salt', 32);
+  // Backward compat: legacy wallets used static 'salt', new wallets store random salt
+  const salt = encrypted.salt ? Buffer.from(encrypted.salt, 'hex') : 'salt';
+  const key = crypto.scryptSync(password, salt, 32, SCRYPT_OPTS);
   const decipher = crypto.createDecipheriv(
     ALGORITHM,
     key,
@@ -133,7 +139,7 @@ function generateConfirmPhrase(): string {
  * Require user to type a confirmation phrase
  * This prevents automated extraction via agents/bots
  */
-export async function requireManualConfirmation(action: string): Promise<void> {
+async function requireManualConfirmation(action: string): Promise<void> {
   // Check for agent environment - hard block
   const agentIndicators = [
     'OPENCLAW_SESSION',
@@ -147,6 +153,14 @@ export async function requireManualConfirmation(action: string): Promise<void> {
   if (agentIndicators.some(env => process.env[env])) {
     throw new Error(
       '🔒 SECURITY: This command cannot be run via agent/bot.\n' +
+      'SSH into your server and run directly: trader wallet export'
+    );
+  }
+
+  // Require an interactive terminal — blocks piped/redirected/automated invocations
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      '🔒 SECURITY: This command requires an interactive terminal (TTY).\n' +
       'SSH into your server and run directly: trader wallet export'
     );
   }

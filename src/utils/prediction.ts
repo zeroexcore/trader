@@ -6,7 +6,7 @@ import { sendAndConfirmTransaction } from './solana.js';
 // Micro USD conversion (6 decimals)
 const MICRO_USD = new Big(1_000_000);
 
-export interface PredictionEvent {
+interface PredictionEvent {
   eventId: string;
   isActive: boolean;
   isLive: boolean;
@@ -27,7 +27,7 @@ export interface PredictionEvent {
   markets: PredictionMarket[];
 }
 
-export interface PredictionMarket {
+interface PredictionMarket {
   marketId: string;
   status: 'open' | 'closed';
   result: 'yes' | 'no' | null;
@@ -47,7 +47,7 @@ export interface PredictionMarket {
   };
 }
 
-export interface PredictionPosition {
+interface PredictionPosition {
   pubkey: string;
   owner: string;
   ownerPubkey: string;
@@ -80,7 +80,7 @@ export interface PredictionPosition {
   };
 }
 
-export interface OrderResponse {
+interface OrderResponse {
   transaction: string; // Base64 encoded
   txMeta?: {
     blockhash: string;
@@ -139,14 +139,6 @@ export async function searchEvents(query: string): Promise<{ events: PredictionE
 }
 
 /**
- * Get single event details
- */
-export async function getEvent(eventId: string): Promise<PredictionEvent> {
-  // Single event endpoint returns data directly, not wrapped
-  return predictionFetch<PredictionEvent>(`/events/${eventId}`);
-}
-
-/**
  * Get market details with pricing
  */
 export async function getMarket(marketId: string): Promise<PredictionMarket> {
@@ -168,7 +160,7 @@ export async function getPositions(ownerPubkey: string, options?: {
   return { positions: response.data || [] };
 }
 
-export interface CreateOrderResponse {
+interface CreateOrderResponse {
   transaction: string;
   txMeta: {
     blockhash: string;
@@ -306,38 +298,3 @@ export function microToUsd(microUsd: number | string | null | undefined): Big {
   return new Big(microUsd).div(MICRO_USD);
 }
 
-/**
- * Convert USD to micro USD
- */
-export function usdToMicro(usd: number | string): Big {
-  return new Big(usd).times(MICRO_USD);
-}
-
-/**
- * Format price from micro USD to display
- */
-export function formatPrice(microUsd: number | string | null | undefined): string {
-  return `$${microToUsd(microUsd).toFixed(2)}`;
-}
-
-/**
- * Format price as percentage (since $1 = 100%)
- */
-export function priceToPercent(microUsd: number | string | null | undefined): string {
-  return `${microToUsd(microUsd).times(100).toFixed(1)}%`;
-}
-
-/**
- * Get market status summary
- */
-export async function getMarketStatus(): Promise<{
-  isOpen: boolean;
-  message?: string;
-}> {
-  try {
-    const response = await predictionFetch<{ status: string }>('/status');
-    return { isOpen: response.status === 'open' };
-  } catch (error) {
-    return { isOpen: false, message: 'Unable to reach prediction market API' };
-  }
-}

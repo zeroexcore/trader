@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { PublicKey } from '@solana/web3.js';
 import { paths, defaultTokenBook } from '../config.js';
 
 const LEGACY_TOKEN_BOOK_PATH = path.join(process.cwd(), 'tokens.json');
@@ -59,7 +60,15 @@ export function saveTokenBook(book: Record<string, string>): void {
 
 /** Resolve ticker to address. Passes through if already an address. */
 export function resolveToken(tickerOrAddress: string): string {
-  if (tickerOrAddress.length > 32) return tickerOrAddress;
+  if (tickerOrAddress.length > 32) {
+    // Validate as Solana public key (base58)
+    try {
+      new PublicKey(tickerOrAddress);
+    } catch {
+      throw new Error(`Invalid Solana address: "${tickerOrAddress}"`);
+    }
+    return tickerOrAddress;
+  }
   
   const book = loadTokenBook();
   // Case-insensitive lookup — handles mixed-case keys like JupUSD, GLDx

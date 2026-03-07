@@ -1,14 +1,14 @@
 import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
-import { apis, tokens, requireJupiterKey } from '../config.js';
+import { apis, requireJupiterKey } from '../config.js';
 
-export interface SwapParams {
+interface SwapParams {
   inputMint: string;
   outputMint: string;
-  amount: number;
+  amount: string;
   slippageBps?: number;
 }
 
-export interface SwapQuote {
+interface SwapQuote {
   inputMint: string;
   outputMint: string;
   inAmount: string;
@@ -136,9 +136,3 @@ export async function browseTokens(limit = 15): Promise<any[]> {
   return (await response.json()) as any[];
 }
 
-// Common token mints for quick reference
-export const COMMON_TOKENS = {
-  SOL: tokens.SOL,
-  USDC: tokens.USDC,
-  USDT: tokens.USDT,
-};

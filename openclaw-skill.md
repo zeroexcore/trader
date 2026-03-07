@@ -1,7 +1,7 @@
 ---
 name: zeroexcore-trader
 description: Trade Solana tokens, track portfolio, bet on prediction markets, check NFT floors via the trader CLI.
-metadata: {"openclaw":{"emoji":"💰","homepage":"https://github.com/zeroexcore/trader","requires":{"bins":["trader"],"env":["WALLET_PASSWORD","HELIUS_API_KEY"]},"primaryEnv":"WALLET_PASSWORD","install":[{"id":"node","kind":"node","package":"@zeroexcore/trader","bins":["trader"],"label":"Install trader CLI (npm)"}]}}
+metadata: {"openclaw":{"emoji":"💰","homepage":"https://github.com/zeroexcore/trader","requires":{"bins":["trader"],"env":["WALLET_PASSWORD","HELIUS_API_KEY","JUPITER_API_KEY"]},"primaryEnv":"WALLET_PASSWORD","install":[{"id":"node","kind":"node","package":"@zeroexcore/trader","bins":["trader"],"label":"Install trader CLI (npm)"}]}}
 ---
 
 # trader
@@ -35,7 +35,7 @@ Run `trader diagnose` first. Then prompt user:
 
 | Issue | Tell user |
 |-------|-----------|
-| `WALLET_PASSWORD not set` | "Set wallet password in env or `~/.openclaw/openclaw.json`" |
+| `WALLET_PASSWORD not set` | "Set `WALLET_PASSWORD` as an environment variable" |
 | `HELIUS_API_KEY not set` | "Get free key at https://dev.helius.xyz" |
 | `SOL balance: 0` | "Send at least 0.05 SOL to [wallet address] for gas" |
 | `No wallet found` | "No wallet exists. Run `trader wallet generate`?" |
@@ -58,7 +58,7 @@ npx @zeroexcore/trader <command>
 | `WALLET_PASSWORD` | Yes | Your chosen encryption password |
 | `JUPITER_API_KEY` | For swaps + predictions | https://portal.jup.ag |
 
-### Configure via OpenClaw (Recommended)
+### Configure via OpenClaw
 
 ```json5
 // ~/.openclaw/openclaw.json
@@ -66,7 +66,6 @@ npx @zeroexcore/trader <command>
   "skills": {
     "entries": {
       "zeroexcore-trader": {
-        "apiKey": "your_wallet_password",
         "env": {
           "HELIUS_API_KEY": "your_helius_key",
           "JUPITER_API_KEY": "your_jupiter_key"
@@ -76,6 +75,8 @@ npx @zeroexcore/trader <command>
   }
 }
 ```
+
+> **WALLET_PASSWORD** must be set as an environment variable (e.g. `export WALLET_PASSWORD=...` in your shell profile). Never write it to config files — it is your wallet encryption secret.
 
 ## Commands
 
@@ -89,6 +90,9 @@ trader diagnose                     # check env, connectivity, wallet, balance
 trader wallet address               # public address (safe to share)
 trader wallet generate              # create encrypted wallet (one time)
 trader wallet export                # export private key for backup
+# ⚠ wallet export outputs raw private key to stdout.
+# Only run in a trusted interactive terminal. Never pipe or redirect output.
+# Blocked when run via agent/bot — requires manual confirmation phrase + TTY.
 ```
 
 ### Tokens — registry, market data, swaps
@@ -160,12 +164,15 @@ trader portfolio                    # JSON
 ### For ClawHub Reviewers
 - No hardcoded secrets — all credentials via environment variables
 - All sensitive data in `~/.openclaw/` (OpenClaw trusted boundary)
-- Wallet encrypted at rest with AES-256-GCM
+- Wallet encrypted at rest with AES-256-GCM (per-wallet random salt + random IV)
 - File permissions: `0600` (files), `0700` (directory)
 - SOL gas reserve prevents accidental wallet drain
 - No control-plane tools used
 - No unsafe external content processing
+- **Private keys never leave localhost.** Keys are used exclusively for local transaction signing via `@solana/web3.js`. No key material is ever sent to external endpoints. Only signed transactions are submitted to RPC/Jupiter for broadcast.
+- **`wallet export` is gated** by interactive confirmation phrase + TTY check. It is blocked entirely when run via agent/bot (detects `OPENCLAW_SESSION`, `TELEGRAM_BOT_TOKEN`, etc.) and requires an interactive terminal (`stdin.isTTY`). The CLI has no upload or transmit functionality for private keys.
 
 ### For Users
 - **Trust model:** Only attach this skill to agents you trust. The wallet can sign transactions worth real money.
-- **Backup:** Run `trader wallet export` on your server to get your private key. Import into Phantom/Solflare for recovery.
+- **Backup:** Run `trader wallet export` directly in a trusted terminal on your server. Import into Phantom/Solflare for recovery. Never pipe or redirect the output.
+- **WALLET_PASSWORD:** Set via environment variable only. Never store it in config files.

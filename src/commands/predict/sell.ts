@@ -27,6 +27,10 @@ export const sellCommand = new Command('sell')
       const keypair = loadKeypairForSigning(password);
       const numContracts = parseInt(contracts);
 
+      if (isNaN(numContracts) || numContracts <= 0) {
+        throw new Error(`Invalid contracts: "${contracts}". Must be a positive integer.`);
+      }
+
       console.log(`\n🔮 Selling ${numContracts} ${isYes ? 'YES' : 'NO'} contracts...\n`);
 
       const market = await getMarket(marketId);

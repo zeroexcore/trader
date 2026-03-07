@@ -1,4 +1,4 @@
-import { apis, explorers, requireHeliusKey } from '../config.js';
+import { apis, explorers, requireHeliusKey, env } from '../config.js';
 import { resolveToken } from './token-book.js';
 
 /**
@@ -9,7 +9,7 @@ import { resolveToken } from './token-book.js';
  * - Birdeye for additional analytics
  */
 
-export interface TokenInfo {
+interface TokenInfo {
   // Basic Info
   address: string;
   symbol: string;
@@ -235,12 +235,15 @@ async function getDexScreenerInfo(mintAddress: string): Promise<Partial<TokenInf
 async function getBirdeyeInfo(mintAddress: string): Promise<Partial<TokenInfo>> {
   // Note: Birdeye requires API key for most endpoints
   // Using public endpoints only
+  const birdeyeKey = env.birdeyeApiKey();
+  if (!birdeyeKey) return {};
+
   try {
     const response = await fetch(
       `https://public-api.birdeye.so/public/token_overview?address=${mintAddress}`,
       {
         headers: {
-          'X-API-KEY': process.env.BIRDEYE_API_KEY || '',
+          'X-API-KEY': birdeyeKey,
         },
       }
     );

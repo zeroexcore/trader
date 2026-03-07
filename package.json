@@ -21,6 +21,9 @@
     "build": "tsc",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -45,6 +48,8 @@
   "devDependencies": {
     "@types/big.js": "6.2.2",
     "@types/node": "25.3.2",
-    "typescript": "5.9.3"
+    "@vitest/coverage-v8": "^4.0.18",
+    "typescript": "5.9.3",
+    "vitest": "^4.0.18"
   }
 }

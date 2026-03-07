@@ -1,7 +1,6 @@
-import { PublicKey } from '@solana/web3.js';
 import { requireHeliusKey, apis, tokens } from '../config.js';
 
-export interface TokenBalance {
+interface TokenBalance {
   name: string;
   symbol: string;
   mint: string;
@@ -11,7 +10,7 @@ export interface TokenBalance {
   pricePerToken: number;
 }
 
-export interface PortfolioData {
+interface PortfolioData {
   totalValueUsd: number;
   tokens: TokenBalance[];
 }
@@ -164,141 +163,3 @@ export async function getPortfolio(address: string): Promise<PortfolioData> {
   };
 }
 
-/**
- * Get transaction history for PnL calculation
- */
-export async function getTransactionHistory(
-  address: string,
-  mint?: string
-): Promise<any[]> {
-  const heliusApiKey = requireHeliusKey();
-  const url = apis.heliusTransactions(address, heliusApiKey);
-  
-  const response = await fetch(url);
-  const transactions = await response.json() as any[];
-
-  // Filter by mint if provided
-  if (mint) {
-    return transactions.filter((tx: any) => {
-      return tx.tokenTransfers?.some((t: any) => t.mint === mint);
-    });
-  }
-
-  return transactions;
-}
-
-/**
- * Calculate PnL for a specific token
- */
-export async function calculatePnL(address: string, mint: string) {
-  const heliusApiKey = requireHeliusKey();
-  const url = apis.heliusTransactions(address, heliusApiKey);
-  const response = await fetch(url);
-  const transactions = await response.json() as any[];
-  
-  let totalBought = 0;
-  let totalCostBasis = 0;
-  let totalSold = 0;
-  let totalRevenue = 0;
-
-  // Special handling for native SOL
-  const isNativeSOL = mint === tokens.SOL;
-
-  for (const tx of transactions) {
-    if (isNativeSOL) {
-      // Process native SOL transfers
-      for (const transfer of tx.nativeTransfers || []) {
-        const amount = transfer.amount / 1e9; // Convert lamports to SOL
-        
-        // Get SOL price at the time of the transaction
-        let priceAtTime = 0;
-        try {
-          // In production, you'd fetch historical price. For now, use current price as estimate
-          const solPriceUrl = apis.heliusRpc(heliusApiKey);
-          const priceResponse = await fetch(solPriceUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: 'price',
-              method: 'getAsset',
-              params: { id: mint },
-            }),
-          });
-          const priceData = await priceResponse.json() as any;
-          priceAtTime = priceData.result?.token_info?.price_info?.price_per_token || 0;
-        } catch (e) {
-          priceAtTime = 0;
-        }
-
-        const usdValue = amount * priceAtTime;
-
-        if (transfer.fromUserAccount === address) {
-          // Outgoing (sell/spend)
-          totalSold += amount;
-          totalRevenue += usdValue;
-        } else if (transfer.toUserAccount === address) {
-          // Incoming (buy/receive)
-          totalBought += amount;
-          totalCostBasis += usdValue;
-        }
-      }
-    } else {
-      // Process SPL token transfers
-      for (const transfer of tx.tokenTransfers || []) {
-        if (transfer.mint !== mint) continue;
-
-        const amount = transfer.tokenAmount;
-        const usdValue = transfer.tokenAmount * (transfer.pricePerToken || 0);
-
-        if (transfer.fromUserAccount === address) {
-          // Sell
-          totalSold += amount;
-          totalRevenue += usdValue;
-        } else if (transfer.toUserAccount === address) {
-          // Buy
-          totalBought += amount;
-          totalCostBasis += usdValue;
-        }
-      }
-    }
-  }
-
-  // Current holdings
-  const portfolio = await getPortfolio(address);
-  const currentHolding = portfolio.tokens.find(t => t.mint === mint);
-  const currentValue = currentHolding?.valueUsd || 0;
-  const currentPrice = currentHolding?.pricePerToken || 0;
-
-  // Realized PnL (from sells)
-  const realizedPnL = totalBought > 0 
-    ? totalRevenue - (totalCostBasis * (totalSold / totalBought))
-    : 0;
-  
-  // Unrealized PnL (current holdings)
-  const remainingCostBasis = totalBought > 0
-    ? totalCostBasis - (totalCostBasis * (totalSold / totalBought))
-    : 0;
-  const unrealizedPnL = currentValue - remainingCostBasis;
-
-  // Calculate average purchase price
-  const avgPurchasePrice = totalBought > 0 ? totalCostBasis / totalBought : 0;
-  const priceChange = avgPurchasePrice > 0 
-    ? ((currentPrice - avgPurchasePrice) / avgPurchasePrice) * 100 
-    : 0;
-
-  return {
-    mint,
-    totalBought,
-    totalSold,
-    currentHolding: currentHolding?.balance || 0,
-    costBasis: totalCostBasis,
-    avgPurchasePrice,
-    currentPrice,
-    priceChange,
-    currentValue,
-    realizedPnL,
-    unrealizedPnL,
-    totalPnL: realizedPnL + unrealizedPnL,
-  };
-}

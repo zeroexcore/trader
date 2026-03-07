@@ -22,6 +22,9 @@ export const env = {
   /** Optional: Override RPC URL */
   rpcUrl: () => process.env.RPC_URL,
   
+  /** Birdeye API key for additional token analytics */
+  birdeyeApiKey: () => process.env.BIRDEYE_API_KEY,
+  
   /** Use Helius Sender for ultra-low latency transaction submission */
   useHeliusSender: () => process.env.USE_HELIUS_SENDER === 'true',
   
@@ -118,7 +121,7 @@ export const safety = {
 };
 
 // Token decimals cache
-export const tokenDecimals: Record<string, number> = {
+const tokenDecimals: Record<string, number> = {
   [tokens.SOL]: 9,
   [tokens.USDC]: 6,
   [tokens.USDT]: 6,

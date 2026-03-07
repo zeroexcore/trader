@@ -7,7 +7,7 @@ import { getPositions, microToUsd } from '../utils/prediction.js';
 import { output, action, requirePassword } from './shared.js';
 
 export const portfolioCommand = new Command('portfolio')
-  .description('Aggregate view: tokens, predictions, PnL')
+  .description('Show portfolio: token holdings, prediction bets, and PnL summary')
   .action(action(async () => {
     const password = requirePassword();
     const address = getWalletAddress(password);

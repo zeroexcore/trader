@@ -28,6 +28,10 @@ export const buyCommand = new Command('buy')
       const keypair = loadKeypairForSigning(password);
       const amountUsd = parseFloat(amount);
 
+      if (isNaN(amountUsd) || amountUsd <= 0) {
+        throw new Error(`Invalid amount: "${amount}". Must be a positive number.`);
+      }
+
       console.log(`\n🔮 Placing prediction bet...\n`);
 
       const market = await getMarket(marketId);

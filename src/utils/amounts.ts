@@ -44,42 +44,6 @@ export function fromSmallestUnit(amount: string, decimals: number): string {
 }
 
 /**
- * Safe multiplication for token amounts
- */
-export function multiplyAmounts(amount1: string | number, amount2: string | number): string {
-  const big1 = new Big(amount1);
-  const big2 = new Big(amount2);
-  return big1.times(big2).toFixed();
-}
-
-/**
- * Safe division for token amounts
- */
-export function divideAmounts(amount1: string | number, amount2: string | number): string {
-  const big1 = new Big(amount1);
-  const big2 = new Big(amount2);
-  return big1.div(big2).toFixed();
-}
-
-/**
- * Safe addition for token amounts
- */
-export function addAmounts(amount1: string | number, amount2: string | number): string {
-  const big1 = new Big(amount1);
-  const big2 = new Big(amount2);
-  return big1.plus(big2).toFixed();
-}
-
-/**
- * Safe subtraction for token amounts
- */
-export function subtractAmounts(amount1: string | number, amount2: string | number): string {
-  const big1 = new Big(amount1);
-  const big2 = new Big(amount2);
-  return big1.minus(big2).toFixed();
-}
-
-/**
  * Get token decimals from Helius or cache
  */
 export async function getTokenDecimals(mintAddress: string): Promise<number> {
@@ -115,10 +79,12 @@ export async function getTokenDecimals(mintAddress: string): Promise<number> {
     if (result?.token_info?.decimals !== undefined) {
       return result.token_info.decimals;
     }
-  } catch (error) {
-    console.warn('Failed to fetch decimals from Helius, defaulting to 9');
+  } catch {
+    // Fall through to error
   }
 
-  // Default to 9 if we can't fetch (most SPL tokens use 9)
-  return 9;
+  throw new Error(
+    `Failed to fetch token decimals for ${mintAddress}. ` +
+    `Cannot proceed safely — incorrect decimals could cause wrong swap amounts.`
+  );
 }

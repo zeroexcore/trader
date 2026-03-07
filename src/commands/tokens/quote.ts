@@ -14,13 +14,16 @@ export const quoteCommand = new Command('quote')
   .action(async (inputMintOrTicker, outputMintOrTicker, amount, options) => {
     const inputMint = resolveToken(inputMintOrTicker);
     const outputMint = resolveToken(outputMintOrTicker);
+    if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      error(`Invalid amount: "${amount}". Must be a positive number.`);
+    }
     try {
       const decimals = await getTokenDecimals(inputMint);
       const amountInSmallestUnit = toSmallestUnit(amount, decimals);
 
       const quote = await getSwapQuote({
         inputMint, outputMint,
-        amount: parseInt(amountInSmallestUnit),
+        amount: amountInSmallestUnit,
         slippageBps: parseInt(options.slippage),
       });
 

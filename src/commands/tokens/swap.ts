@@ -26,11 +26,15 @@ export const swapCommand = new Command('swap')
     const connection = new Connection(rpcUrl, 'confirmed');
     const keypair = loadKeypairForSigning(password);
 
+    const swapAmount = parseFloat(amount);
+    if (isNaN(swapAmount) || swapAmount <= 0) {
+      throw new Error(`Invalid amount: "${amount}". Must be a positive number.`);
+    }
+
     // SOL reserve check: prevent draining wallet of gas money
     if (inputMint === tokens.SOL && !options.force) {
       const balance = await connection.getBalance(keypair.publicKey);
       const balanceSol = balance / 1e9;
-      const swapAmount = parseFloat(amount);
       const remaining = balanceSol - swapAmount;
 
       if (remaining < safety.minSolReserve) {
@@ -45,11 +49,11 @@ export const swapCommand = new Command('swap')
     }
 
     const decimals = await getTokenDecimals(inputMint);
-    const amountInSmallestUnit = toSmallestUnit(parseFloat(amount), decimals);
+    const amountInSmallestUnit = toSmallestUnit(amount, decimals);
 
     const quote = await getSwapQuote({
       inputMint, outputMint,
-      amount: parseInt(amountInSmallestUnit),
+      amount: amountInSmallestUnit,
       slippageBps: parseInt(options.slippage),
       taker: keypair.publicKey.toBase58(),
     });

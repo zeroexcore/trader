@@ -5,16 +5,16 @@ import { perps as perpsConfig } from "../../config.js"
 import IDL from "./idl.json" with { type: "json" }
 
 // Program IDs
-export const JUPITER_PERPETUALS_PROGRAM_ID = new PublicKey(
+const JUPITER_PERPETUALS_PROGRAM_ID = new PublicKey(
   perpsConfig.programId
 )
 
-export const JLP_POOL_ACCOUNT_PUBKEY = new PublicKey(
+const JLP_POOL_ACCOUNT_PUBKEY = new PublicKey(
   perpsConfig.poolAccount
 )
 
 // Custody accounts
-export const CUSTODY = {
+const CUSTODY = {
   SOL: new PublicKey(perpsConfig.custody.SOL),
   ETH: new PublicKey(perpsConfig.custody.ETH),
   BTC: new PublicKey(perpsConfig.custody.BTC),
@@ -29,7 +29,7 @@ const CUSTODY_NAMES = Object.fromEntries(
 const USDC_DECIMALS = 6
 
 // Types
-export type PerpsPosition = {
+type PerpsPosition = {
   publicKey: string
   owner: string
   side: "long" | "short"
@@ -42,7 +42,7 @@ export type PerpsPosition = {
   liquidationPrice: Big
 }
 
-export type CustodyInfo = {
+type CustodyInfo = {
   name: string
   pubkey: PublicKey
   maxLeverage: number
@@ -52,7 +52,7 @@ export type CustodyInfo = {
   utilizationRate: number
 }
 
-export type PoolStats = {
+type PoolStats = {
   aumUsd: Big
   name: string
 }
@@ -84,7 +84,7 @@ export async function getPoolStats(connection: Connection): Promise<PoolStats> {
 }
 
 // Fetch custody info for a market
-export async function getCustodyInfo(
+async function getCustodyInfo(
   connection: Connection,
   market: keyof typeof CUSTODY
 ): Promise<CustodyInfo> {
@@ -148,21 +148,4 @@ export async function getOpenPositions(
   return positions.filter((p) => p.sizeUsd.gt(0))
 }
 
-// Calculate PnL for a position
-export function calculatePnl(
-  position: PerpsPosition,
-  currentPrice: Big
-): { pnl: Big; pnlPercent: number } {
-  const priceDelta = currentPrice.minus(position.entryPrice).abs()
-  const rawPnl = position.sizeUsd.times(priceDelta).div(position.entryPrice)
 
-  const isProfit =
-    position.side === "long"
-      ? currentPrice.gt(position.entryPrice)
-      : currentPrice.lt(position.entryPrice)
-
-  const pnl = isProfit ? rawPnl : rawPnl.neg()
-  const pnlPercent = pnl.div(position.collateralUsd).times(100).toNumber()
-
-  return { pnl, pnlPercent }
-}
