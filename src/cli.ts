@@ -9,6 +9,8 @@ import { predictCommand } from './commands/predict/index.js';
 import { perpsCommand } from './commands/perps/index.js';
 import { nftsCommand } from './commands/nfts/index.js';
 import { diagnoseCommand } from './commands/diagnose.js';
+import { dcaCommand } from './commands/dca/index.js';
+import { limitCommand } from './commands/limit/index.js';
 
 dotenv.config();
 
@@ -29,5 +31,7 @@ program.addCommand(predictCommand);
 program.addCommand(perpsCommand);
 program.addCommand(nftsCommand);
 program.addCommand(diagnoseCommand);
+program.addCommand(dcaCommand);
+program.addCommand(limitCommand);
 
 program.parse(process.argv);

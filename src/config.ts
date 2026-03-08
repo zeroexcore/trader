@@ -68,6 +68,8 @@ export const apis = {
   jupiterTokenTop: 'https://api.jup.ag/tokens/v2/toporganicscore/24h',
   jupiterPrediction: 'https://api.jup.ag/prediction/v1',
   jupiterPerps: 'https://perps-api.jup.ag/v1',
+  jupiterRecurring: 'https://api.jup.ag/recurring/v1',
+  jupiterTrigger: 'https://api.jup.ag/trigger/v1',
   
   // Solana public RPC (fallback)
   solanaMainnet: 'https://api.mainnet-beta.solana.com',

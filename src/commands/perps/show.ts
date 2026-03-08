@@ -1,42 +1,68 @@
-import { Connection } from '@solana/web3.js';
 import { Command } from 'commander';
-import { getAllCustodyInfo } from '../../utils/perps/index.js';
+import {
+  getMarketStats,
+  getPoolInfo,
+  assetToMint,
+  PERPS_ASSETS,
+  type PerpsAsset,
+} from '../../utils/perps-api.js';
 import { output, action } from '../shared.js';
-import { getRpcUrl } from '../../config.js';
 
 export const showCommand = new Command('show')
   .argument('[market]', 'Market symbol (SOL, ETH, BTC) — omit for all')
-  .description('View market info, prices, and fees')
+  .description('View market prices, stats, and pool info')
   .action(action(async (market) => {
-    const connection = new Connection(getRpcUrl());
-    const custodies = await getAllCustodyInfo(connection);
+    const assets: PerpsAsset[] = market
+      ? [market.toUpperCase() as PerpsAsset]
+      : [...PERPS_ASSETS];
 
-    const filtered = market
-      ? custodies.filter(c => c.name.toUpperCase().startsWith(market.toUpperCase()))
-      : custodies;
+    // Validate
+    for (const a of assets) assetToMint(a);
 
-    if (filtered.length === 0) throw new Error(`Market "${market}" not found. Available: SOL, ETH, BTC`);
+    // Fetch market stats and pool info in parallel
+    const results = await Promise.all(
+      assets.map(async (asset) => {
+        const mint = assetToMint(asset);
+        const [stats, pool] = await Promise.all([
+          getMarketStats(mint),
+          getPoolInfo(mint),
+        ]);
+        return { asset, stats, pool };
+      }),
+    );
 
-    const marketsData = filtered.map(c => ({
-      market: c.name,
-      maxLeverage: `${c.maxLeverage}x`,
-      openFeePct: (c.openFeeBps / 100).toFixed(2),
-      closeFeePct: (c.closeFeeBps / 100).toFixed(2),
+    const marketsData = results.map(({ asset, stats, pool }) => ({
+      market: asset,
+      price: stats.price,
+      priceChange24H: stats.priceChange24H,
+      priceHigh24H: stats.priceHigh24H,
+      priceLow24H: stats.priceLow24H,
+      volume: stats.volume,
+      longLiquidity: pool.longAvailableLiquidity,
+      longBorrowRate: pool.longBorrowRatePercent,
+      longUtilization: pool.longUtilizationPercent,
+      shortLiquidity: pool.shortAvailableLiquidity,
+      shortBorrowRate: pool.shortBorrowRatePercent,
+      shortUtilization: pool.shortUtilizationPercent,
+      openFee: pool.openFeePercent,
     }));
 
     output({ markets: marketsData, tradeUrl: 'https://jup.ag/perps' }, () => {
-      const lines = [
-        'Jupiter Perpetuals',
-        '',
-        'Market      Max Lev   Open Fee   Close Fee',
-        '----------- -------- ---------- ----------',
-      ];
-      for (const c of filtered) {
-        lines.push(
-          `${c.name.padEnd(11)} ${(c.maxLeverage + 'x').padEnd(8)} ${((c.openFeeBps / 100).toFixed(2) + '%').padEnd(10)} ${(c.closeFeeBps / 100).toFixed(2)}%`
-        );
+      const lines = ['Jupiter Perpetuals', ''];
+      for (const { asset, stats, pool } of results) {
+        const price = parseFloat(String(stats.price));
+        const change = parseFloat(String(stats.priceChange24H));
+        const high = parseFloat(String(stats.priceHigh24H));
+        const low = parseFloat(String(stats.priceLow24H));
+        const chg = change >= 0 ? `+${change.toFixed(2)}%` : `${change.toFixed(2)}%`;
+        lines.push(`${asset}-PERP`);
+        lines.push(`  Price: $${price.toLocaleString()}  24h: ${chg}  H: $${high.toLocaleString()} L: $${low.toLocaleString()}`);
+        lines.push(`  Long:  Liquidity ${pool.longAvailableLiquidity}  Borrow ${pool.longBorrowRatePercent}%  Util ${pool.longUtilizationPercent}%`);
+        lines.push(`  Short: Liquidity ${pool.shortAvailableLiquidity}  Borrow ${pool.shortBorrowRatePercent}%  Util ${pool.shortUtilizationPercent}%`);
+        lines.push(`  Open Fee: ${pool.openFeePercent}%`);
+        lines.push('');
       }
-      lines.push('', 'Trade at: https://jup.ag/perps');
+      lines.push('Trade at: https://jup.ag/perps');
       return lines.join('\n');
     });
   }));

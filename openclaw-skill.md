@@ -1,6 +1,6 @@
 ---
 name: zeroexcore-trader
-description: Trade Solana tokens, track portfolio, bet on prediction markets, check NFT floors via the trader CLI.
+description: Trade Solana tokens, perps, DCA, limit orders, prediction markets, NFTs via the trader CLI.
 metadata: {"openclaw":{"emoji":"💰","homepage":"https://github.com/zeroexcore/trader","requires":{"bins":["trader"],"env":["WALLET_PASSWORD","HELIUS_API_KEY","JUPITER_API_KEY"]},"primaryEnv":"WALLET_PASSWORD","install":[{"id":"node","kind":"node","package":"@zeroexcore/trader","bins":["trader"],"label":"Install trader CLI (npm)"}]}}
 ---
 
@@ -110,7 +110,7 @@ trader tokens positions             # on-chain token holdings
 
 ### Portfolio — aggregate view
 ```bash
-trader portfolio                    # tokens + predictions + PnL summary
+trader portfolio                    # tokens + perps + predictions + DCA + limits + PnL
 ```
 
 ### Predict — prediction markets
@@ -129,13 +129,44 @@ trader predict positions --all      # include closed
 **Pricing:** $0.85 = 85% implied probability. Win $1/contract if correct.
 **Categories:** sports, politics, crypto, culture, economics, tech, esports
 
-### Perps — perpetual futures
+### Perps — perpetual futures (SOL, ETH, BTC via Jupiter)
 ```bash
 trader perps show                   # all markets + fees
 trader perps show SOL               # single market info
-trader perps positions              # open perp positions
+trader perps positions              # open perp positions with PnL
 trader perps pool                   # JLP pool AUM
+
+# Trading — all args positional, explicit market/side/token/amount
+trader perps open SOL long SOL 0.06 --leverage 2      # long SOL, pay 0.06 SOL
+trader perps open BTC short USDC 20 --leverage 2      # short BTC, pay 20 USDC
+trader perps increase BTC short USDC 5 --leverage 2   # add 5 USDC to BTC short
+trader perps decrease BTC short 5                     # reduce BTC short by $5 USD
+trader perps close BTC short                          # close BTC short
+trader perps close SOL long --receive USDC            # close SOL long, receive USDC
 ```
+
+**Collateral:** asset itself for longs, USDC for shorts. Cross-token supported (internal swap).
+**Slippage:** `--slippage <bps>` (default 30 = 0.3%). Guard rail only — keeper fills at oracle price.
+**Execution:** request-fulfillment model. Keeper fills within ~45s.
+
+### DCA — dollar-cost averaging (Jupiter Recurring)
+```bash
+trader dca create USDC SOL 100 2 --interval 86400    # DCA $100 into SOL, 2 orders daily
+trader dca list                                       # active DCA orders
+trader dca list --status history                      # completed DCA orders
+trader dca cancel <order-pubkey>                      # cancel active DCA
+```
+**Constraints:** min $100 total, min $50 per cycle, min 2 orders.
+
+### Limit — limit orders (Jupiter Trigger)
+```bash
+trader limit create USDC SOL 5 0.06 --expires 86400  # sell 5 USDC for 0.06 SOL, 24h expiry
+trader limit list                                     # active limit orders
+trader limit list --status history                    # filled/expired orders
+trader limit cancel <order-pubkey>                    # cancel single order
+trader limit cancel --all                             # cancel all orders
+```
+**Constraints:** min $5 per order.
 
 ### NFTs — market data
 ```bash

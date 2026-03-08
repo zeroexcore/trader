@@ -1,4 +1,4 @@
-import { BN } from '@coral-xyz/anchor';
+import BN from 'bn.js';
 import { PublicKey } from '@solana/web3.js';
 import Big from 'big.js';
 import { getPoolStats, getAllCustodyInfo, getOpenPositions } from '../../utils/perps/index.js';
@@ -51,6 +51,17 @@ vi.mock('../../config.js', () => ({
       USDT: '4vkNeXiYEUizLdrpdPS1eC2mccyM4NUPRtERrk6ZETkk',
     },
   },
+  tokens: {
+    SOL: 'So11111111111111111111111111111111111111112',
+    USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+    WBTC: '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',
+    WETH: '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs',
+    JUP: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
+    JupUSD: 'JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD',
+    GLDx: 'Xsv9hRk1z5ystj9MhnA7Lq4vjSsLwzL2nxrwmwtD3re',
+    RAY: '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
+  },
 }));
 
 // Create a mock Connection that also has getProgramAccounts
@@ -94,6 +105,10 @@ describe('getAllCustodyInfo()', () => {
       pricing: { maxLeverage: new BN(1_000_000) }, // 100x (÷10000)
       increasePositionBps: new BN(6),
       decreasePositionBps: new BN(6),
+      mint: new PublicKey('So11111111111111111111111111111111111111112'),
+      tokenAccount: new PublicKey('11111111111111111111111111111111'),
+      dovesOracle: new PublicKey('11111111111111111111111111111111'),
+      oracle: { oracleAccount: new PublicKey('11111111111111111111111111111111') },
     });
 
     const custodies = await getAllCustodyInfo(mockConnection());
@@ -113,6 +128,10 @@ describe('getAllCustodyInfo()', () => {
       pricing: { maxLeverage: new BN(500_000) }, // 50x
       increasePositionBps: new BN(10),
       decreasePositionBps: new BN(8),
+      mint: new PublicKey('So11111111111111111111111111111111111111112'),
+      tokenAccount: new PublicKey('11111111111111111111111111111111'),
+      dovesOracle: new PublicKey('11111111111111111111111111111111'),
+      oracle: { oracleAccount: new PublicKey('11111111111111111111111111111111') },
     });
 
     await getAllCustodyInfo(mockConnection());
@@ -131,6 +150,7 @@ describe('getOpenPositions()', () => {
       owner: { toBase58: () => walletKey.toBase58() },
       side: { long: {} },
       custody: { toBase58: () => custodySolKey },
+      collateralCustody: { toBase58: () => custodySolKey },
       sizeUsd: new BN('50000000000'), // 50,000 USD (6 decimals)
       collateralUsd: new BN('5000000000'), // 5,000 USD
       price: new BN('150000000'), // 150 USD entry
@@ -161,6 +181,7 @@ describe('getOpenPositions()', () => {
       owner: { toBase58: () => walletKey.toBase58() },
       side: { long: {} },
       custody: { toBase58: () => custodySolKey },
+      collateralCustody: { toBase58: () => custodySolKey },
       sizeUsd: new BN('0'),
       collateralUsd: new BN('0'),
       price: new BN('100000000'),
@@ -193,6 +214,7 @@ describe('getOpenPositions()', () => {
       owner: { toBase58: () => walletKey.toBase58() },
       side: { short: {} }, // no `long` key
       custody: { toBase58: () => custodySolKey },
+      collateralCustody: { toBase58: () => 'G18jKKXQwBbrHeiK3C9MRXhkHsLHf7XgCSisykV46EZa' },
       sizeUsd: new BN('10000000000'),
       collateralUsd: new BN('2000000000'),
       price: new BN('140000000'),
