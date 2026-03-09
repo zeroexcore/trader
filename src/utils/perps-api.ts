@@ -5,6 +5,8 @@ import { sendAndConfirmTransaction } from './solana.js';
 import {
   buildIncreasePositionTx,
   buildDecreasePositionTx,
+  buildTpslTx,
+  buildTpslPairTx,
   getOpenPositions as getOnChainPositions,
   resolveCustodies,
   derivePositionPda,
@@ -30,6 +32,14 @@ export type PerpsToken = PerpsAsset | 'USDC';
 // Response types (kept for command compatibility)
 // ============================================================================
 
+export interface TriggerOrderInfo {
+  pubkey: string;
+  triggerPriceUsd: string;  // 6-decimal raw
+  triggerAboveThreshold: boolean;
+  entirePosition: boolean;
+  label: string;  // 'TP' or 'SL'
+}
+
 export interface PerpsPosition {
   asset: string;
   side: PerpsSide;
@@ -42,6 +52,9 @@ export interface PerpsPosition {
   pnlAfterFeesUsd: string;
   pnlAfterFeesPct: string;
   positionPubkey: string;
+  tpPriceUsd?: string;   // highest TP trigger (6-decimal raw)
+  slPriceUsd?: string;   // lowest SL trigger (6-decimal raw)
+  triggerOrders: TriggerOrderInfo[];
 }
 
 export interface PerpsPositionsResponse {
@@ -176,6 +189,7 @@ function normalizeApiPosition(raw: any): PerpsPosition {
     pnlAfterFeesUsd: raw.pnlAfterFees || raw.pnlAfterFeesUsd || '0',
     pnlAfterFeesPct: raw.pnlChangePctAfterFees || raw.pnlAfterFeesPct || '0',
     positionPubkey: raw.positionPubkey,
+    triggerOrders: [],
   };
 }
 
@@ -203,6 +217,38 @@ export async function getPerpsPositions(
       const pnlPct = p.collateralUsd.gt(0)
         ? p.unrealizedPnl.div(p.collateralUsd).mul(100).toFixed(1)
         : '0';
+      const isLong = p.side === 'long';
+
+      // Classify trigger orders as TP or SL based on side
+      const triggerOrders: TriggerOrderInfo[] = p.triggerOrders.map(t => ({
+        pubkey: t.pubkey,
+        triggerPriceUsd: t.triggerPrice.mul(1_000_000).toFixed(0),
+        triggerAboveThreshold: t.triggerAboveThreshold,
+        entirePosition: t.entirePosition,
+        // Long: above=TP, below=SL. Short: above=SL, below=TP
+        label: (isLong === t.triggerAboveThreshold) ? 'TP' : 'SL',
+      }));
+
+      // Pick the effective TP and SL prices
+      const tpOrders = triggerOrders.filter(t => t.label === 'TP');
+      const slOrders = triggerOrders.filter(t => t.label === 'SL');
+      // For TP: use the nearest (lowest for long, highest for short)
+      // For SL: use the nearest (highest for long, lowest for short)
+      const tpPriceUsd = tpOrders.length > 0
+        ? tpOrders.reduce((best, t) => {
+            const price = Number(t.triggerPriceUsd);
+            const bestPrice = Number(best.triggerPriceUsd);
+            return isLong ? (price < bestPrice ? t : best) : (price > bestPrice ? t : best);
+          }).triggerPriceUsd
+        : undefined;
+      const slPriceUsd = slOrders.length > 0
+        ? slOrders.reduce((best, t) => {
+            const price = Number(t.triggerPriceUsd);
+            const bestPrice = Number(best.triggerPriceUsd);
+            return isLong ? (price > bestPrice ? t : best) : (price < bestPrice ? t : best);
+          }).triggerPriceUsd
+        : undefined;
+
       return {
         asset: p.custody,
         side: p.side,
@@ -215,6 +261,9 @@ export async function getPerpsPositions(
         pnlAfterFeesUsd: p.unrealizedPnl.mul(1_000_000).toFixed(0),
         pnlAfterFeesPct: pnlPct,
         positionPubkey: p.publicKey,
+        tpPriceUsd,
+        slPriceUsd,
+        triggerOrders,
       };
     }),
   };
@@ -351,6 +400,62 @@ export async function signAndSendPerps(
 ): Promise<string> {
   tx.sign([keypair]);
   return sendAndConfirmTransaction(connection, tx);
+}
+
+// ============================================================================
+// TP/SL transaction building
+// ============================================================================
+
+export interface TpslParams {
+  positionPubkey: string;
+  side: PerpsSide;
+  asset: PerpsAsset;
+  receiveToken: PerpsToken;
+  tpPrice?: number;  // take-profit trigger price in USD
+  slPrice?: number;  // stop-loss trigger price in USD
+  entirePosition?: boolean;
+}
+
+/**
+ * Build a TP/SL transaction. If both tp and sl are provided, bundles both into one tx.
+ */
+export async function buildTpslTransaction(
+  connection: Connection,
+  params: TpslParams,
+): Promise<{ tx: VersionedTransaction; positionPubkey: string }> {
+  const positionPubkey = new PublicKey(params.positionPubkey);
+  const entirePosition = params.entirePosition ?? true;
+
+  // For longs: TP triggers above (price >= tp), SL triggers below (price <= sl)
+  // For shorts: TP triggers below (price <= tp), SL triggers above (price >= sl)
+  const isLong = params.side === 'long';
+
+  const makeReq = (price: number, isTP: boolean) => ({
+    owner: positionPubkey, // unused — fetched from position account
+    positionPubkey,
+    desiredToken: params.receiveToken,
+    triggerPrice: new BN(Math.round(price * 1_000_000)),
+    triggerAboveThreshold: isLong ? isTP : !isTP,
+    entirePosition,
+  });
+
+  let tx: VersionedTransaction;
+
+  if (params.tpPrice && params.slPrice) {
+    tx = await buildTpslPairTx(
+      connection,
+      makeReq(params.tpPrice, true),
+      makeReq(params.slPrice, false),
+    );
+  } else if (params.tpPrice) {
+    tx = await buildTpslTx(connection, makeReq(params.tpPrice, true));
+  } else if (params.slPrice) {
+    tx = await buildTpslTx(connection, makeReq(params.slPrice, false));
+  } else {
+    throw new Error('At least one of --tp or --sl is required');
+  }
+
+  return { tx, positionPubkey: params.positionPubkey };
 }
 
 // Legacy compat — kept for any code still using the old flow

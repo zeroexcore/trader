@@ -98,6 +98,13 @@ export const portfolioCommand = new Command('portfolio')
             const pnl = rawToUsd(p.pnlAfterFeesUsd);
             const pnlStr = `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
             lines.push(`  ${(p.asset || '?').padEnd(4)} ${p.side.toUpperCase().padEnd(6)} ${size.padEnd(10)} @ ${entry}  ${p.leverage}x  ${pnlStr}`);
+            // Show TP/SL if set
+            if (p.tpPriceUsd || p.slPriceUsd) {
+              const tp = p.tpPriceUsd ? `TP ${formatUsd(p.tpPriceUsd)}` : '';
+              const sl = p.slPriceUsd ? `SL ${formatUsd(p.slPriceUsd)}` : '';
+              const sep = tp && sl ? '  |  ' : '';
+              lines.push(`         ${tp}${sep}${sl}`);
+            }
           }
           lines.push('');
         }

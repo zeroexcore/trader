@@ -49,6 +49,9 @@ export const positionsCommand = new Command('positions')
       pnlAfterFeesUsd: rawToUsd(p.pnlAfterFeesUsd),
       pnlAfterFeesPct: p.pnlAfterFeesPct,
       positionPubkey: p.positionPubkey,
+      tpPriceUsd: p.tpPriceUsd ? rawToUsd(p.tpPriceUsd) : undefined,
+      slPriceUsd: p.slPriceUsd ? rawToUsd(p.slPriceUsd) : undefined,
+      triggerOrders: p.triggerOrders,
     }));
 
     output({ wallet: walletAddress, positions: positionsData, count }, () => {
@@ -71,6 +74,13 @@ export const positionsCommand = new Command('positions')
           `${pnlStr.padEnd(16)} ` +
           `${p.leverage}x`
         );
+        // Show TP/SL if set
+        if (p.tpPriceUsd || p.slPriceUsd) {
+          const tp = p.tpPriceUsd ? `TP ${formatUsd(p.tpPriceUsd)}` : '';
+          const sl = p.slPriceUsd ? `SL ${formatUsd(p.slPriceUsd)}` : '';
+          const sep = tp && sl ? '  |  ' : '';
+          lines.push(`        ${tp}${sep}${sl}`);
+        }
       }
       return lines.join('\n');
     });

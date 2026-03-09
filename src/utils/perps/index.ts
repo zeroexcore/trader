@@ -69,6 +69,13 @@ const USDC_DECIMALS = 6
 
 export type Side = "long" | "short"
 
+export type TriggerOrder = {
+  pubkey: string
+  triggerPrice: Big
+  triggerAboveThreshold: boolean  // true = TP for longs, SL for shorts
+  entirePosition: boolean
+}
+
 export type PerpsPosition = {
   publicKey: string
   owner: string
@@ -82,6 +89,7 @@ export type PerpsPosition = {
   leverage: number
   unrealizedPnl: Big
   liquidationPrice: Big
+  triggerOrders: TriggerOrder[]
 }
 
 export type CustodyInfo = {
@@ -209,7 +217,8 @@ async function fetchCustodyOracles(
 ): Promise<{ dovesPriceAccount: PublicKey; pythnetPriceAccount: PublicKey; tokenAccount: PublicKey; mint: PublicKey }> {
   const custody = await program.account.custody.fetch(custodyPubkey) as any
   return {
-    dovesPriceAccount: custody.dovesOracle as PublicKey,
+    // dovesAgOracle is the current doves price feed (replaced the older dovesOracle)
+    dovesPriceAccount: (custody.dovesAgOracle ?? custody.dovesOracle) as PublicKey,
     pythnetPriceAccount: (custody.oracle as any).oracleAccount as PublicKey,
     tokenAccount: custody.tokenAccount as PublicKey,
     mint: custody.mint as PublicKey,
@@ -467,6 +476,36 @@ export async function getOpenPositions(
     ],
   })
 
+  // Scan for trigger orders (TP/SL) — PositionRequest accounts with requestType: Trigger
+  const triggerGpa = await connection.getProgramAccounts(program.programId, {
+    commitment: "confirmed",
+    filters: [
+      { memcmp: { bytes: wallet.toBase58(), offset: 8 } },
+      { memcmp: program.coder.accounts.memcmp("PositionRequest") },
+    ],
+  })
+
+  const triggersByPosition = new Map<string, TriggerOrder[]>()
+  for (const item of triggerGpa) {
+    try {
+      const req = program.coder.accounts.decode("PositionRequest", item.account.data) as any
+      // Only include trigger orders (not market orders), that haven't been executed
+      const isTrigger = !!req.requestType?.trigger
+      if (!isTrigger || req.executed) continue
+
+      const posKey = (req.position as PublicKey).toBase58()
+      const order: TriggerOrder = {
+        pubkey: item.pubkey.toBase58(),
+        triggerPrice: bnToBig(req.triggerPrice),
+        triggerAboveThreshold: !!req.triggerAboveThreshold,
+        entirePosition: !!req.entirePosition,
+      }
+      const existing = triggersByPosition.get(posKey) || []
+      existing.push(order)
+      triggersByPosition.set(posKey, existing)
+    } catch { /* skip decode errors */ }
+  }
+
   const positions: PerpsPosition[] = gpaResult.map((item) => {
     const account = program.coder.accounts.decode("Position", item.account.data) as any
     const custodyKey = account.custody.toBase58()
@@ -498,8 +537,9 @@ export async function getOpenPositions(
         : entryPrice.mul(Big(1).plus(collateralRatio))
     }
 
+    const posKey = item.pubkey.toBase58()
     return {
-      publicKey: item.pubkey.toBase58(),
+      publicKey: posKey,
       owner: account.owner.toBase58(),
       side,
       custody: assetName,
@@ -511,10 +551,214 @@ export async function getOpenPositions(
       leverage,
       unrealizedPnl,
       liquidationPrice,
+      triggerOrders: triggersByPosition.get(posKey) || [],
     }
   })
 
   return positions.filter((p) => p.sizeUsd.gt(0))
+}
+
+// ============================================================================
+// TP/SL via createDecreasePositionRequest2 (requestType: Trigger)
+// ============================================================================
+
+export type TpslRequest = {
+  owner: PublicKey
+  positionPubkey: PublicKey
+  desiredToken: string             // SOL, ETH, BTC, USDC, USDT
+  triggerPrice: BN                 // trigger price in USD (6 decimals)
+  triggerAboveThreshold: boolean   // true = TP (long) / SL (short), false = SL (long) / TP (short)
+  entirePosition?: boolean
+  sizeUsdDelta?: BN               // partial close size (6 decimals), ignored if entirePosition
+}
+
+/**
+ * Build a createDecreasePositionRequest2 transaction with requestType: Trigger.
+ * Creates an on-chain TP or SL order. Keepers execute when trigger price is hit.
+ */
+export async function buildTpslTx(
+  connection: Connection,
+  req: TpslRequest,
+): Promise<VersionedTransaction> {
+  const program = createProgram(connection)
+  const desiredMint = resolveInputMint(req.desiredToken)
+
+  // Fetch position data for custody addresses
+  const position = await program.account.position.fetch(req.positionPubkey) as any
+  const owner = position.owner as PublicKey
+  const custodyPubkey = position.custody as PublicKey
+  const collateralCustodyPubkey = position.collateralCustody as PublicKey
+
+  // Fetch oracle accounts (needed by createDecreasePositionRequest2 but not by market version)
+  const oracles = await fetchCustodyOracles(program, custodyPubkey)
+
+  const { positionRequest, counter } = derivePositionRequestPda(req.positionPubkey, "decrease")
+  const positionRequestAta = getAssociatedTokenAddressSync(desiredMint, positionRequest, true)
+  const receivingAccount = getAssociatedTokenAddressSync(desiredMint, owner, true)
+
+  const preInstructions: TransactionInstruction[] = []
+  const postInstructions: TransactionInstruction[] = []
+
+  // Ensure receiving ATA exists (for trigger orders the keeper executes later)
+  preInstructions.push(
+    createAssociatedTokenAccountIdempotentInstruction(owner, receivingAccount, owner, desiredMint)
+  )
+
+  const tpslIx = await program.methods
+    .createDecreasePositionRequest2({
+      collateralUsdDelta: new BN(0),
+      sizeUsdDelta: req.sizeUsdDelta ?? new BN(0),
+      requestType: { trigger: {} },
+      priceSlippage: null,
+      jupiterMinimumOut: null,
+      triggerPrice: req.triggerPrice,
+      triggerAboveThreshold: req.triggerAboveThreshold,
+      entirePosition: req.entirePosition ?? true,
+      counter,
+    })
+    .accounts({
+      owner,
+      receivingAccount,
+      perpetuals: PERPETUALS_PDA,
+      pool: POOL,
+      position: req.positionPubkey,
+      positionRequest,
+      positionRequestAta,
+      custody: custodyPubkey,
+      custodyDovesPriceAccount: oracles.dovesPriceAccount,
+      custodyPythnetPriceAccount: oracles.pythnetPriceAccount,
+      collateralCustody: collateralCustodyPubkey,
+      desiredMint,
+      referral: null as any,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+      eventAuthority: EVENT_AUTHORITY,
+      program: PROGRAM_ID,
+    })
+    .instruction()
+
+  return buildAndSimulateTx(connection, owner, [...preInstructions, tpslIx, ...postInstructions])
+}
+
+/**
+ * Build a transaction with both TP and SL in a single tx (two instructions).
+ */
+export async function buildTpslPairTx(
+  connection: Connection,
+  tpReq: TpslRequest,
+  slReq: TpslRequest,
+): Promise<VersionedTransaction> {
+  const program = createProgram(connection)
+  const position = await program.account.position.fetch(tpReq.positionPubkey) as any
+  const owner = position.owner as PublicKey
+  const custodyPubkey = position.custody as PublicKey
+  const collateralCustodyPubkey = position.collateralCustody as PublicKey
+  const oracles = await fetchCustodyOracles(program, custodyPubkey)
+
+  const instructions: TransactionInstruction[] = []
+
+  for (const req of [tpReq, slReq]) {
+    const desiredMint = resolveInputMint(req.desiredToken)
+    const { positionRequest, counter } = derivePositionRequestPda(req.positionPubkey, "decrease")
+    const positionRequestAta = getAssociatedTokenAddressSync(desiredMint, positionRequest, true)
+    const receivingAccount = getAssociatedTokenAddressSync(desiredMint, owner, true)
+
+    instructions.push(
+      createAssociatedTokenAccountIdempotentInstruction(owner, receivingAccount, owner, desiredMint)
+    )
+
+    const ix = await program.methods
+      .createDecreasePositionRequest2({
+        collateralUsdDelta: new BN(0),
+        sizeUsdDelta: req.sizeUsdDelta ?? new BN(0),
+        requestType: { trigger: {} },
+        priceSlippage: null,
+        jupiterMinimumOut: null,
+        triggerPrice: req.triggerPrice,
+        triggerAboveThreshold: req.triggerAboveThreshold,
+        entirePosition: req.entirePosition ?? true,
+        counter,
+      })
+      .accounts({
+        owner,
+        receivingAccount,
+        perpetuals: PERPETUALS_PDA,
+        pool: POOL,
+        position: req.positionPubkey,
+        positionRequest,
+        positionRequestAta,
+        custody: custodyPubkey,
+        custodyDovesPriceAccount: oracles.dovesPriceAccount,
+        custodyPythnetPriceAccount: oracles.pythnetPriceAccount,
+        collateralCustody: collateralCustodyPubkey,
+        desiredMint,
+        referral: null as any,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        eventAuthority: EVENT_AUTHORITY,
+        program: PROGRAM_ID,
+      })
+      .instruction()
+
+    instructions.push(ix)
+  }
+
+  return buildAndSimulateTx(connection, owner, instructions)
+}
+
+// ============================================================================
+// Update existing TP/SL trigger orders
+// ============================================================================
+
+export type UpdateTpslRequest = {
+  owner: PublicKey
+  positionPubkey: PublicKey
+  positionRequestPubkey: PublicKey
+  triggerPrice: BN  // new trigger price in USD (6 decimals)
+}
+
+/**
+ * Build an updateDecreasePositionRequest2 transaction.
+ * Updates triggerPrice on an existing TP/SL PositionRequest. Owner-only.
+ */
+export async function buildUpdateTpslTx(
+  connection: Connection,
+  requests: UpdateTpslRequest[],
+): Promise<VersionedTransaction> {
+  const program = createProgram(connection)
+  const owner = requests[0].owner
+
+  // Fetch oracle accounts once (all requests should be same custody)
+  const position = await program.account.position.fetch(requests[0].positionPubkey) as any
+  const custodyPubkey = position.custody as PublicKey
+  const oracles = await fetchCustodyOracles(program, custodyPubkey)
+
+  const instructions: TransactionInstruction[] = []
+
+  for (const req of requests) {
+    const ix = await program.methods
+      .updateDecreasePositionRequest2({
+        sizeUsdDelta: new BN(0),
+        triggerPrice: req.triggerPrice,
+      })
+      .accounts({
+        owner,
+        perpetuals: PERPETUALS_PDA,
+        pool: POOL,
+        position: req.positionPubkey,
+        positionRequest: req.positionRequestPubkey,
+        custody: custodyPubkey,
+        custodyDovesPriceAccount: oracles.dovesPriceAccount,
+        custodyPythnetPriceAccount: oracles.pythnetPriceAccount,
+      })
+      .instruction()
+
+    instructions.push(ix)
+  }
+
+  return buildAndSimulateTx(connection, owner, instructions)
 }
 
 // Re-export constants for use by commands
