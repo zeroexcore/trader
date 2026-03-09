@@ -453,6 +453,8 @@ export async function getAllCustodyInfo(connection: Connection): Promise<Custody
 export async function getOpenPositions(
   connection: Connection,
   walletPubkey: PublicKey | string,
+  /** Optional mark prices keyed by asset name (SOL, ETH, BTC). When provided, PnL + liquidation are computed. */
+  markPrices?: Record<string, number>,
 ): Promise<PerpsPosition[]> {
   const wallet = typeof walletPubkey === "string" ? new PublicKey(walletPubkey) : walletPubkey
   const program = createProgram(connection)
@@ -468,22 +470,47 @@ export async function getOpenPositions(
   const positions: PerpsPosition[] = gpaResult.map((item) => {
     const account = program.coder.accounts.decode("Position", item.account.data) as any
     const custodyKey = account.custody.toBase58()
+    const assetName = CUSTODY_NAMES[custodyKey] || custodyKey
     const sizeUsd = bnToBig(account.sizeUsd)
     const collateralUsd = bnToBig(account.collateralUsd)
+    const entryPrice = bnToBig(account.price)
+    const leverage = sizeUsd.div(collateralUsd.eq(0) ? Big(1) : collateralUsd).toNumber()
+    const side = (account.side.long ? "long" : "short") as Side
+
+    // Compute mark-dependent fields if prices available
+    let unrealizedPnl = Big(0)
+    let liquidationPrice = Big(0)
+    const mark = markPrices?.[assetName]
+    if (mark && entryPrice.gt(0)) {
+      const markBig = Big(mark)
+      // PnL = sizeUsd * (markPrice - entryPrice) / entryPrice for longs, inverse for shorts
+      const priceDelta = side === "long"
+        ? markBig.minus(entryPrice).div(entryPrice)
+        : entryPrice.minus(markBig).div(entryPrice)
+      unrealizedPnl = sizeUsd.mul(priceDelta)
+
+      // Liquidation price: price at which collateral is wiped out
+      // Long:  liqPrice = entryPrice * (1 - collateralUsd / sizeUsd)
+      // Short: liqPrice = entryPrice * (1 + collateralUsd / sizeUsd)
+      const collateralRatio = collateralUsd.div(sizeUsd.eq(0) ? Big(1) : sizeUsd)
+      liquidationPrice = side === "long"
+        ? entryPrice.mul(Big(1).minus(collateralRatio))
+        : entryPrice.mul(Big(1).plus(collateralRatio))
+    }
 
     return {
       publicKey: item.pubkey.toBase58(),
       owner: account.owner.toBase58(),
-      side: (account.side.long ? "long" : "short") as Side,
-      custody: CUSTODY_NAMES[custodyKey] || custodyKey,
+      side,
+      custody: assetName,
       custodyPubkey: custodyKey,
       collateralCustodyPubkey: (account.collateralCustody as PublicKey).toBase58(),
       sizeUsd,
       collateralUsd,
-      entryPrice: bnToBig(account.price),
-      leverage: sizeUsd.div(collateralUsd.eq(0) ? Big(1) : collateralUsd).toNumber(),
-      unrealizedPnl: Big(0),
-      liquidationPrice: Big(0),
+      entryPrice,
+      leverage,
+      unrealizedPnl,
+      liquidationPrice,
     }
   })
 

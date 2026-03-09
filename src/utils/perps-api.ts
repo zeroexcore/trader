@@ -179,27 +179,44 @@ function normalizeApiPosition(raw: any): PerpsPosition {
   };
 }
 
-/** Fetch positions from on-chain (reliable, always has asset field) */
+/** Fetch positions from on-chain with live mark prices, PnL, and liquidation */
 export async function getPerpsPositions(
   walletAddress: string,
   connection: Connection,
 ): Promise<PerpsPositionsResponse> {
-  const positions = await getOnChainPositions(connection, walletAddress);
+  // Fetch mark prices for all perps assets in parallel
+  const assetMints = Object.entries(PERPS_MINTS);
+  const statsResults = await Promise.allSettled(
+    assetMints.map(([, mint]) => getMarketStats(mint)),
+  );
+  const markPrices: Record<string, number> = {};
+  assetMints.forEach(([name], i) => {
+    const r = statsResults[i];
+    if (r.status === 'fulfilled') markPrices[name] = Number(r.value.price);
+  });
+
+  const positions = await getOnChainPositions(connection, walletAddress, markPrices);
   return {
     count: positions.length,
-    dataList: positions.map(p => ({
-      asset: p.custody,
-      side: p.side,
-      leverage: p.leverage.toFixed(1),
-      sizeUsd: p.sizeUsd.mul(1_000_000).toFixed(0),
-      collateralUsd: p.collateralUsd.mul(1_000_000).toFixed(0),
-      entryPriceUsd: p.entryPrice.mul(1_000_000).toFixed(0),
-      markPriceUsd: '0',
-      liquidationPriceUsd: '0',
-      pnlAfterFeesUsd: '0',
-      pnlAfterFeesPct: '0',
-      positionPubkey: p.publicKey,
-    })),
+    dataList: positions.map(p => {
+      const mark = markPrices[p.custody] ?? 0;
+      const pnlPct = p.collateralUsd.gt(0)
+        ? p.unrealizedPnl.div(p.collateralUsd).mul(100).toFixed(1)
+        : '0';
+      return {
+        asset: p.custody,
+        side: p.side,
+        leverage: p.leverage.toFixed(1),
+        sizeUsd: p.sizeUsd.mul(1_000_000).toFixed(0),
+        collateralUsd: p.collateralUsd.mul(1_000_000).toFixed(0),
+        entryPriceUsd: p.entryPrice.mul(1_000_000).toFixed(0),
+        markPriceUsd: Math.floor(mark * 1_000_000).toString(),
+        liquidationPriceUsd: p.liquidationPrice.mul(1_000_000).toFixed(0),
+        pnlAfterFeesUsd: p.unrealizedPnl.mul(1_000_000).toFixed(0),
+        pnlAfterFeesPct: pnlPct,
+        positionPubkey: p.publicKey,
+      };
+    }),
   };
 }
 
